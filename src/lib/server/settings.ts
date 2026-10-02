@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { revealSecret } from "@/lib/server/secrets";
 import {
   DEFAULT_MODEL,
   DEFAULT_VOICE,
@@ -16,7 +17,7 @@ export async function getSettingsRow() {
   if (!row) {
     row = await db.settings.create({ data: { id: SINGLETON } });
   }
-  return row;
+  return { ...row, hfToken: revealSecret(row.hfToken) };
 }
 
 function maskToken(token: string): string {
@@ -40,9 +41,10 @@ export function toPublicSettings(row: {
   voiceEngine: string | null;
   browserVoiceUri: string | null;
 }): PublicSettings {
+  const hfToken = revealSecret(row.hfToken);
   return {
-    hasToken: !!row.hfToken,
-    tokenPreview: row.hfToken ? maskToken(row.hfToken) : null,
+    hasToken: !!hfToken,
+    tokenPreview: hfToken ? maskToken(hfToken) : null,
     model: row.model || DEFAULT_MODEL,
     customModel: row.customModel,
     engine: (row.engine as EngineMode) || "auto",
