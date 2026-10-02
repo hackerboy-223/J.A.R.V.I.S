@@ -224,10 +224,17 @@ function startNeuralEngine(
   let raf = 0;
   let freqArr: Uint8Array<ArrayBuffer> | null = null;
 
+  const finite = (value: number, fallback = 0): number =>
+    Number.isFinite(value) ? value : fallback;
+
+  const clamp01 = (value: number, fallback = 0): number =>
+    Math.max(0, Math.min(1, finite(value, fallback)));
+
   const onPointer = (e: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
-    parTX = ((e.clientX - rect.left) / rect.width - 0.5) * 0.55;
-    parTY = ((e.clientY - rect.top) / rect.height - 0.5) * 0.4;
+    if (rect.width <= 0 || rect.height <= 0) return;
+    parTX = finite(((e.clientX - rect.left) / rect.width - 0.5) * 0.55);
+    parTY = finite(((e.clientY - rect.top) / rect.height - 0.5) * 0.4);
   };
   window.addEventListener("pointermove", onPointer);
 
@@ -237,11 +244,15 @@ function startNeuralEngine(
     if (!freqArr || freqArr.length !== an.frequencyBinCount) {
       freqArr = new Uint8Array(an.frequencyBinCount);
     }
-    an.getByteFrequencyData(freqArr);
+    try {
+      an.getByteFrequencyData(freqArr);
+    } catch {
+      return -1;
+    }
     let sum = 0;
     const n = Math.min(freqArr.length, 96);
     for (let i = 2; i < n; i++) sum += freqArr[i];
-    return sum / Math.max(1, n - 2) / 255;
+    return clamp01(sum / Math.max(1, n - 2) / 255);
   };
 
   const spawnPulse = (edgeIdx: number, dir: 1 | -1, goldPulse: boolean, hops: number): void => {
@@ -258,9 +269,10 @@ function startNeuralEngine(
   };
 
   const render = (now: number): void => {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    const t = now / 1000;
+    const rawDt = finite((now - last) / 1000);
+    const dt = Math.max(0, Math.min(0.05, rawDt));
+    last = finite(now, performance.now());
+    const t = finite(now / 1000);
     const ph = signals.current?.phase ?? "idle";
 
     // Re-lecture des couleurs ~ toutes les 2 s (changement de thème)
@@ -293,7 +305,11 @@ function startNeuralEngine(
     } else {
       target = 0.1 + 0.05 * Math.sin(t * 0.9);
     }
-    smoothed += (Math.max(0, Math.min(1, target)) - smoothed) * Math.min(1, dt * 7.5);
+    const safeTarget = clamp01(target, 0.12);
+    smoothed = clamp01(
+      finite(smoothed, 0.12) + (safeTarget - finite(smoothed, 0.12)) * Math.min(1, dt * 7.5),
+      0.12
+    );
     const energy = smoothed;
 
     // ---- Ondes concentriques pendant l'élocution ----
@@ -354,7 +370,7 @@ function startNeuralEngine(
     const sinX = Math.sin(rotX);
 
     // ---- Projection ----
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = Math.max(0.5, Math.min(2, finite(window.devicePixelRatio || 1, 1)));
     const w = Math.round(canvas.clientWidth * dpr);
     const h = Math.round(canvas.clientHeight * dpr);
     if (w === 0 || h === 0) {
@@ -480,7 +496,7 @@ function startNeuralEngine(
     }
 
     // ---- Cœur central (noyau du réseau) ----
-    const coreR = (30 + energy * 42) * dpr;
+    const coreR = Math.max(1, finite((30 + energy * 42) * dpr, 30));
     const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
     coreGrad.addColorStop(0, "rgba(255,255,255,0.9)");
     coreGrad.addColorStop(0.18, thinking ? amber(0.75) : cyan(0.8));
@@ -497,13 +513,15 @@ function startNeuralEngine(
     ctx.strokeStyle = thinking ? amber(0.9) : cyan(0.9);
     ctx.lineWidth = Math.max(1, dpr * 1.2);
     ctx.beginPath();
-    ctx.arc(cx, cy, (16 + energy * 22) * dpr, 0, Math.PI * 2);
+    const coreRingR = Math.max(1, finite((16 + energy * 22) * dpr, 16));
+    ctx.arc(cx, cy, coreRingR, 0, Math.PI * 2);
     ctx.stroke();
     for (const wv of waves) {
       ctx.globalAlpha = wv.a * 0.3;
       ctx.lineWidth = Math.max(1, dpr * 1.4);
       ctx.beginPath();
-      ctx.arc(cx, cy, wv.r * unit, 0, Math.PI * 2);
+      const waveRadius = Math.max(0, finite(wv.r * unit));
+      if (waveRadius > 0) ctx.arc(cx, cy, waveRadius, 0, Math.PI * 2);
       ctx.stroke();
     }
 
