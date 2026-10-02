@@ -31,6 +31,7 @@ import { SettingsDialog } from "@/components/chat/settings-dialog";
 import { ThemeToggle } from "@/components/chat/theme-toggle";
 import { useHuggingAgent } from "@/hooks/use-hugging-agent";
 import { useJarvisVoice } from "@/hooks/use-jarvis-voice";
+import { useHandsFreeSpeech } from "@/hooks/use-hands-free-speech";
 import {
   ArcReactor,
   BootSequence,
@@ -43,8 +44,8 @@ import {
 import { HF_MODELS, STARK_MODELS, isStarkModel, modelLabel, HUD_EVENT, type HudAction, type SystemStatus, type UpdateSettingsPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// PERF : le lien neural (gros moteur canvas) est chargé à la demande,
-// uniquement quand l'utilisateur veut parler à JARVIS.
+// Le HUD vocal plein écran est chargé à la demande,
+// uniquement quand l'utilisateur veut parler à J.A.R.V.I.S.
 const NeuralLink = dynamicImport(
   () => import("@/components/jarvis/NeuralLink").then((m) => ({ default: m.NeuralLink })),
   {
@@ -245,6 +246,14 @@ export default function Page() {
     },
   });
 
+  const handsFree = useHandsFreeSpeech({
+    lang: "fr-FR",
+    silenceMs: 900,
+    onUtterance: (text) => {
+      void runVoiceTurnRef.current(text);
+    },
+  });
+
   const runTurn = React.useCallback(
     async (text: string, spoken: boolean) => {
       setLastTranscript(text);
@@ -294,13 +303,16 @@ export default function Page() {
         suppressRelistenRef.current = false;
         return;
       }
-      if (voiceModeRef.current && voice.micState === "idle" && !voice.micError) {
-        // pas de ré-écoute automatique si le micro vient d'échouer
-        // (évite un toast d'erreur après chaque réponse dans un aperçu intégré)
-        void voice.startListening();
+      if (voiceModeRef.current) {
+        if (handsFree.supported && handsFree.enabled) {
+          handsFree.resume();
+        } else if (voice.micState === "idle" && !voice.micError) {
+          // Fallback : ancien pipeline enregistrement -> ASR serveur.
+          void voice.startListening();
+        }
       }
     },
-    [agent, voice]
+    [agent, handsFree, voice]
   );
 
   React.useEffect(() => {
@@ -319,53 +331,93 @@ export default function Page() {
   const openNeural = React.useCallback(() => {
     setNeuralOpen(true);
     setVoiceMode(true);
-    if (voice.micState === "idle" && !agent.streaming) {
+
+    if (agent.streaming) return;
+
+    if (handsFree.supported) {
+      handsFree.start();
+    } else if (voice.micState === "idle") {
       void voice.startListening();
     }
-  }, [voice, agent.streaming]);
+  }, [agent.streaming, handsFree, voice]);
 
   const handleMicToggle = React.useCallback(() => {
-    if (voice.micState === "listening") {
+    if (handsFree.supported) {
+      setNeuralOpen(true);
+      setVoiceMode(true);
+
+      if (!handsFree.enabled) {
+        handsFree.start();
+      } else if (handsFree.listening) {
+        handsFree.pause();
+      } else if (!agent.streaming && !voice.speaking) {
+        handsFree.resume();
+      }
+      return;
+    }
+
+    if (effectiveMicState === "listening") {
       void voice.stopListening();
     } else if (voice.micState === "idle" && !agent.streaming) {
-      // Ouvre le lien neural plein écran pour parler à JARVIS
       openNeural();
     }
-  }, [voice, agent.streaming, openNeural]);
+  }, [agent.streaming, handsFree, openNeural, voice]);
 
   const handleVoiceModeChange = React.useCallback(
     (enabled: boolean) => {
       setVoiceMode(enabled);
+
       if (!enabled) {
+        handsFree.stop();
         voice.cancelListening();
         voice.stopSpeaking();
-      } else if (voice.micState === "idle" && !agent.streaming) {
+        return;
+      }
+
+      if (agent.streaming || voice.speaking) return;
+
+      if (handsFree.supported) {
+        handsFree.start();
+      } else if (voice.micState === "idle") {
         void voice.startListening();
       }
     },
-    [voice, agent.streaming]
+    [agent.streaming, handsFree, voice]
   );
 
   const handleStop = React.useCallback(() => {
     suppressRelistenRef.current = true;
     agent.stop();
+    handsFree.stop();
     voice.stopSpeaking();
     voice.cancelListening();
-  }, [agent, voice]);
+  }, [agent, handsFree, voice]);
 
   const closeNeural = React.useCallback(() => {
     setNeuralOpen(false);
     setVoiceMode(false);
+    handsFree.stop();
     voice.cancelListening();
-  }, [voice]);
+  }, [handsFree, voice]);
 
   const handleNeuralMic = React.useCallback(() => {
-    if (voice.micState === "listening") {
+    if (handsFree.supported) {
+      if (!handsFree.enabled) {
+        handsFree.start();
+      } else if (handsFree.listening) {
+        handsFree.pause();
+      } else if (!agent.streaming && !voice.speaking) {
+        handsFree.resume();
+      }
+      return;
+    }
+
+    if (effectiveMicState === "listening") {
       void voice.stopListening();
     } else if (voice.micState === "idle" && !agent.streaming) {
       void voice.startListening();
     }
-  }, [voice, agent.streaming]);
+  }, [agent.streaming, handsFree, voice]);
 
   const handleNeuralSend = React.useCallback(
     (text: string) => {
@@ -378,10 +430,23 @@ export default function Page() {
     openNeural();
   }, [openNeural]);
 
+  // ---- État vocal effectif : mains libres prioritaire, ASR serveur en fallback ----
+  const effectiveMicState =
+    handsFree.processing
+      ? ("transcribing" as const)
+      : handsFree.listening
+        ? ("listening" as const)
+        : voice.micState;
+
+  const liveTranscript =
+    handsFree.transcript.trim() || lastTranscript || null;
+
+  const voiceInputSupported = handsFree.supported || micSupported;
+
   // ---- État visuel du réacteur / statut ----
   const reactorState: ReactorState = voice.speaking
     ? "speaking"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "listening"
       : agent.streaming
         ? "thinking"
@@ -389,7 +454,7 @@ export default function Page() {
 
   const waveState: "idle" | "listening" | "speaking" = voice.speaking
     ? "speaking"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "listening"
       : agent.streaming
         ? "speaking"
@@ -400,9 +465,9 @@ export default function Page() {
 
   const neuralPhase: NeuralPhase = voice.speaking
     ? "speaking"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "listening"
-      : voice.micState === "transcribing"
+      : effectiveMicState === "transcribing"
         ? "transcribing"
         : agent.streaming
           ? "thinking"
@@ -410,9 +475,9 @@ export default function Page() {
 
   const statusShort = voice.speaking
     ? "ÉLOCUTION"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "ÉCOUTE"
-      : voice.micState === "transcribing"
+      : effectiveMicState === "transcribing"
         ? "TRANSCRIPTION"
         : agent.streaming
           ? "TRAITEMENT"
@@ -420,9 +485,9 @@ export default function Page() {
 
   const statusLong = voice.speaking
     ? "À VOTRE SERVICE, MONSIEUR"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "JE VOUS ÉCOUTE, MONSIEUR"
-      : voice.micState === "transcribing"
+      : effectiveMicState === "transcribing"
         ? "ANALYSE DE LA VOIX…"
         : agent.streaming
           ? "ANALYSE MULTI-SYSTÈME EN COURS…"
@@ -431,7 +496,7 @@ export default function Page() {
   const messages = agent.messages;
   const lastMessage = messages[messages.length - 1];
   const voiceStripVisible =
-    voiceMode || voice.micState !== "idle" || voice.speaking || agent.streaming;
+    voiceMode || effectiveMicState !== "idle" || voice.speaking || agent.streaming;
 
   // Auto-scroll (si l'utilisateur est déjà en bas)
   React.useEffect(() => {
@@ -698,7 +763,7 @@ export default function Page() {
               <Welcome
                 onPick={handleSend}
                 onVoice={startVoiceFromWelcome}
-                micSupported={micSupported}
+                micSupported={voiceInputSupported}
                 embedded={embedded}
               />
             ) : (
@@ -765,8 +830,8 @@ export default function Page() {
                 onSend={handleSend}
                 onStop={handleStop}
                 busy={agent.streaming}
-                micState={voice.micState}
-                micSupported={micSupported}
+                micState={effectiveMicState}
+                micSupported={voiceInputSupported}
                 onMicToggle={handleMicToggle}
                 speaking={voice.speaking}
                 voiceMode={voiceMode}
@@ -810,13 +875,13 @@ export default function Page() {
           open={neuralOpen}
           phase={neuralPhase}
           micState={voice.micState}
-          micSupported={micSupported}
+          micSupported={voiceInputSupported}
           micError={voice.micError}
           micAnalyser={voice.micAnalyser}
           speakAnalyser={voice.speakAnalyser}
-          transcript={lastTranscript}
+          transcript={liveTranscript}
           responseText={spokenText}
-          statusText={agent.statusText}
+          statusText={handsFree.error ?? agent.statusText}
           streaming={agent.streaming}
           speaking={voice.speaking}
           onClose={closeNeural}
