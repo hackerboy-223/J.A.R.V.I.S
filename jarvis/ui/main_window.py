@@ -266,7 +266,7 @@ class MainWindow(QMainWindow):
         if not self.hands_free or not text.strip():
             return
         if self.listener is not None:
-            self.listener.shutdown()
+            self.listener.stop()
         self.live_caption.setText(f"HEARD · {text}")
         self._submit(text, spoken=True)
 
@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         if self.listener is not None:
-            self.listener.stop()
+            self.listener.shutdown()
         self.speaker.stop()
         event.accept()
 
