@@ -309,6 +309,12 @@ function launchDetached(command: string, args: string[] = []): void {
 }
 
 const pcControl: ToolFn = async (args) => {
+  if (process.env.JARVIS_ALLOW_PC_CONTROL !== "true") {
+    throw new Error(
+      "Contrôle PC désactivé. Définis JARVIS_ALLOW_PC_CONTROL=true dans .env pour l'activer explicitement."
+    );
+  }
+
   if (process.platform !== "win32") {
     throw new Error("Le contrôle PC local est actuellement disponible uniquement sous Windows.");
   }
