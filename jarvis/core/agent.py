@@ -72,8 +72,8 @@ class JarvisAgent:
         if not clean:
             return ""
 
-        self.memory.add_message("user", clean)
         messages = self._messages(clean)
+        self.memory.add_message("user", clean)
 
         for _ in range(6):
             result = self.llm.complete(messages, self.tools.definitions())
