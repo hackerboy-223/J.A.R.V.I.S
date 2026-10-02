@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 ToolFn = Callable[[dict[str, Any]], Any]
@@ -11,6 +11,13 @@ class Tool:
     name: str
     description: str
     fn: ToolFn
+    parameters: dict[str, Any] = field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        }
+    )
     requires_confirmation: bool = False
 
 
@@ -30,14 +37,7 @@ class ToolRegistry:
                 "function": {
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "action": {"type": "string"},
-                            "target": {"type": "string"},
-                        },
-                        "additionalProperties": True,
-                    },
+                    "parameters": tool.parameters,
                 },
             }
             for tool in self._tools.values()
