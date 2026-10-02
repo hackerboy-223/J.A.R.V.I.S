@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  LogOut,
   Plug,
   RotateCcw,
   TriangleAlert,
@@ -92,6 +93,14 @@ export function SettingsDialog({
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   const [testResult, setTestResult] = React.useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.assign("/login");
+    }
+  };
 
   // Voix françaises natives du navigateur (chargées async)
   React.useEffect(() => {
@@ -593,6 +602,15 @@ export function SettingsDialog({
         </div>
 
         <DialogFooter className="gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="mr-auto text-muted-foreground"
+            onClick={handleLogout}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Déconnexion
+          </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Annuler
           </Button>
