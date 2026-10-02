@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
 import { TTS_VOICES } from "@/lib/types";
+import { requireAuthorized } from "@/lib/server/auth";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -81,6 +83,10 @@ function speechClean(markdown: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
+  const limited = enforceRateLimit(req, { name: "voice-tts", limit: 20, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const body = (await req.json()) as {
       text?: string;
