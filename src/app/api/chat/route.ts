@@ -220,7 +220,7 @@ export async function POST(req: NextRequest) {
             llmMessages.push({ role: "assistant", content: result.text });
             llmMessages.push({
               role: "user",
-              content: `Error: unknown tool "${tc.tool}". Available tools: web_search, read_page, calculator, run_js, get_datetime, system_status, hud_action. Answer directly or use a valid tool.`,
+              content: `Error: unknown tool "${tc.tool}". Available tools: web_search, read_page, calculator, run_js, get_datetime, system_status, pc_control, hud_action. Answer directly or use a valid tool.`,
             });
             continue;
           }
