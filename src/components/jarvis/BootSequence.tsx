@@ -26,19 +26,19 @@ interface BootLine {
 }
 
 const LINES: BootLine[] = [
-  { text: "INITIALISATION DU NOYAU J.A.R.V.I.S.", ok: true },
-  { text: "CHARGEMENT DES MODULES COGNITIFS", ok: true },
-  { text: "LIAISON HUGGING FACE", value: "ÉTABLIE" },
-  { text: "CALIBRAGE DU SYNTHÉTISEUR VOCAL", ok: true },
-  { text: "ANALYSE DES SYSTÈMES DE LA MACHINE", value: "100 %" },
-  { text: "MOTEUR HOLOGRAPHIQUE", value: "EN LIGNE" },
-  { text: "PROTOCOLES DE SÉCURITÉ STARK", ok: true },
-  { text: "OUTILS EXTERNES · WEB / CODE / CALCUL", ok: true },
-  { text: "INTERFACE VOCALE", value: "OPÉRATIONNELLE" },
-  { text: "BASE DE DONNÉES LOCALE", value: "MONTÉE" },
+  { text: "INITIALISATION DU NOYAU COGNITIF", ok: true },
+  { text: "VÉRIFICATION DE L'INTÉGRITÉ SYSTÈME", value: "NOMINALE" },
+  { text: "LIAISON AU SYSTÈME HÔTE", value: "ÉTABLIE" },
+  { text: "CHARGEMENT DES MODULES DE RAISONNEMENT", ok: true },
+  { text: "CALIBRAGE DE L'INTERFACE VOCALE", ok: true },
+  { text: "MATRICE HOLOGRAPHIQUE", value: "EN LIGNE" },
+  { text: "TÉLÉMÉTRIE LOGICIELLE", value: "ACTIVE" },
+  { text: "MODULE DE RECHERCHE EXTERNE", value: "PRÊT" },
+  { text: "MODULE D'INGÉNIERIE · CODE / CALCUL", ok: true },
   { text: "MÉMOIRE CONTEXTUELLE", value: "INDEXÉE" },
-  { text: "SURVEILLANCE RADAR", value: "ACTIVE" },
-  { text: "SYNCHRONISATION DES SOUS-ROUTINES", ok: true },
+  { text: "CANAL DE COMMANDE VOCAL", value: "OPÉRATIONNEL" },
+  { text: "PROTOCOLES DE SÉCURITÉ", ok: true },
+  { text: "SYNCHRONISATION DES SOUS-SYSTÈMES", ok: true },
   { text: "TOUS SYSTÈMES NOMINAUX", ok: true },
 ];
 
@@ -146,7 +146,7 @@ export function BootSequence({
               <div className="animate-hud-sweep absolute inset-y-0 left-0 w-2/5 bg-gradient-to-r from-transparent via-primary to-transparent" />
             </div>
             <p className="hud-label text-primary/75">
-              {modelLabel ?? "SYSTÈMES EN LIGNE — À VOTRE SERVICE, MONSIEUR"}
+              {modelLabel ?? "SYSTÈMES NOMINAUX — INTERFACE DE COMMANDE EN LIGNE"}
             </p>
           </div>
         </div>
