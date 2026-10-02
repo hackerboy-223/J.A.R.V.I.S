@@ -256,3 +256,16 @@ For low-memory hands-free voice, use Vosk independently of the LLM provider:
 JARVIS_STT_PROVIDER="vosk"
 JARVIS_VOSK_MODEL_PATH=""
 ```
+
+
+## Python 3.14 + Vosk
+
+On Windows with Python 3.14, the project uses `platypush-vosk>=0.3.45.post2`.
+It is a repackaged build of upstream Vosk 0.3.45 and keeps the same Python import package:
+
+```python
+from vosk import Model, KaldiRecognizer, SetLogLevel
+```
+
+This avoids the nonexistent `vosk>=0.3.75` dependency and provides a Windows x86-64 wheel suitable
+for current Python 3.14 installations.
