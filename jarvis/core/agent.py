@@ -202,8 +202,10 @@ class JarvisAgent:
                 "content": "\n\n".join(system_sections),
             }
         ]
-        messages.extend(self.memory.recent_messages(limit=20))
-        messages.append({"role": "user", "content": user_text})
+        recent = self.memory.recent_messages(limit=20)
+        messages.extend(recent)
+        if not recent or recent[-1].get("role") != "user" or recent[-1].get("content") != user_text:
+            messages.append({"role": "user", "content": user_text})
         return messages
 
     def _run_standard(self, clean: str, progress: ProgressFn) -> str:
