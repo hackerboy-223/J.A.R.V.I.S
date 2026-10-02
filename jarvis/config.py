@@ -14,10 +14,15 @@ load_dotenv(ROOT / ".env")
 
 @dataclass(frozen=True)
 class Settings:
-    llm_provider: str = os.getenv("JARVIS_LLM_PROVIDER", "huggingface").strip().lower()
-    llm_base_url: str = os.getenv("JARVIS_LLM_BASE_URL", "https://api.openai.com/v1")
-    llm_api_key: str = os.getenv("JARVIS_LLM_API_KEY", "")
-    llm_model: str = os.getenv("JARVIS_LLM_MODEL", "zai-org/GLM-5.3-Flash")
+    llm_provider: str = os.getenv("JARVIS_LLM_PROVIDER", "openrouter").strip().lower()
+    llm_base_url: str = os.getenv("JARVIS_LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    llm_api_key: str = os.getenv(
+        "OPENROUTER_API_KEY",
+        os.getenv("JARVIS_LLM_API_KEY", ""),
+    )
+    llm_model: str = os.getenv("JARVIS_LLM_MODEL", "openrouter/free")
+    openrouter_referer: str = os.getenv("OPENROUTER_HTTP_REFERER", "").strip()
+    openrouter_title: str = os.getenv("OPENROUTER_X_TITLE", "J.A.R.V.I.S.").strip()
     hf_token: str = os.getenv("HF_TOKEN", os.getenv("HUGGING_FACE_HUB_TOKEN", ""))
     hf_model: str = os.getenv("JARVIS_HF_MODEL", "zai-org/GLM-5.3-Flash")
     hf_provider: str = os.getenv("JARVIS_HF_PROVIDER", "auto")
