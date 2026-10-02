@@ -96,10 +96,18 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Aucun champ valide fourni" }, { status: 400 });
     }
 
-    const row = await db.settings.update({ where: { id: "singleton" }, data });
+    const row = await db.settings.upsert({
+      where: { id: "singleton" },
+      update: data,
+      create: { id: "singleton", ...data },
+    });
     return NextResponse.json(toPublicSettings(row));
   } catch (e) {
     console.error("[settings:PUT]", e);
-    return NextResponse.json({ error: "Échec de l'enregistrement des réglages" }, { status: 500 });
+    const detail =
+      process.env.NODE_ENV === "development" && e instanceof Error
+        ? `Échec de l'enregistrement des réglages : ${e.message}`
+        : "Échec de l'enregistrement des réglages";
+    return NextResponse.json({ error: detail }, { status: 500 });
   }
 }
