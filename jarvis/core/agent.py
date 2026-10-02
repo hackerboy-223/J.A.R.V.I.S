@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Callable
+from typing import Any, Callable
 
 from jarvis.config import settings
 from jarvis.core.llm import LLMClient
@@ -54,7 +54,7 @@ class JarvisAgent:
             )
         )
 
-    def _messages(self, user_text: str) -> list[dict[str, str]]:
+    def _messages(self, user_text: str) -> list[dict[str, Any]]:
         facts = self.memory.facts()
         memory_context = json.dumps(facts, ensure_ascii=False)
         messages = [
@@ -77,22 +77,25 @@ class JarvisAgent:
 
         for _ in range(6):
             result = self.llm.complete(messages, self.tools.definitions())
-            calls = result.get("tool_calls") or []
+            message = result.get("message") or {}
+            calls = message.get("tool_calls") or []
+
             if not calls:
-                answer = str(result.get("content") or "").strip()
+                answer = str(message.get("content") or "").strip()
                 self.memory.add_message("assistant", answer)
                 return answer
 
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": str(result.get("content") or ""),
-                }
-            )
+            messages.append(message)
 
             for call in calls:
-                name = str(call.get("name") or "")
-                args = call.get("arguments") or {}
+                function = call.get("function") or {}
+                name = str(function.get("name") or "")
+                raw_args = function.get("arguments") or "{}"
+                try:
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    args = {}
+
                 tool = self.tools.get(name)
 
                 if tool.requires_confirmation:
@@ -114,6 +117,8 @@ class JarvisAgent:
                 messages.append(
                     {
                         "role": "tool",
+                        "tool_call_id": str(call.get("id") or ""),
+                        "name": name,
                         "content": json.dumps(tool_result, ensure_ascii=False),
                     }
                 )
