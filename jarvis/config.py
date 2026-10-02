@@ -21,6 +21,7 @@ class Settings:
     hf_token: str = os.getenv("HF_TOKEN", os.getenv("HUGGING_FACE_HUB_TOKEN", ""))
     hf_model: str = os.getenv("JARVIS_HF_MODEL", "zai-org/GLM-5.3-Flash")
     hf_provider: str = os.getenv("JARVIS_HF_PROVIDER", "auto")
+    serper_api_key: str = os.getenv("SERPER_API_KEY", "")
     allow_pc_control: bool = os.getenv("JARVIS_ALLOW_PC_CONTROL", "false").lower() == "true"
     whisper_model: str = os.getenv("JARVIS_WHISPER_MODEL", "base")
     whisper_compute_type: str = os.getenv("JARVIS_WHISPER_COMPUTE", "int8")
