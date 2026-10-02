@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from jarvis.config import settings
 from jarvis.core.agent import JarvisAgent
+from jarvis.profile import OWNER_PROFILE
 from jarvis.ui.neural_widget import NeuralCoreWidget
 from jarvis.voice.stt import HandsFreeListener
 from jarvis.voice.tts import Speaker
@@ -154,6 +155,14 @@ class MainWindow(QMainWindow):
         knowledge_button.clicked.connect(self._show_knowledge)
         controls.addWidget(knowledge_button)
 
+        profile_button = QPushButton("PROFILE")
+        profile_button.clicked.connect(self._show_profile)
+        controls.addWidget(profile_button)
+
+        memory_button = QPushButton("AGENT MEMORY")
+        memory_button.clicked.connect(self._show_agent_memory)
+        controls.addWidget(memory_button)
+
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -274,6 +283,35 @@ class MainWindow(QMainWindow):
                 f"• {doc['name']} · {doc['chunks']} chunks · {doc['size_chars']} caractères"
             )
         QMessageBox.information(self, "Knowledge Base", "\n".join(lines))
+
+    def _show_profile(self) -> None:
+        dynamic = self.agent.memory.facts()
+        lines = ["PROFIL PRINCIPAL", "", OWNER_PROFILE]
+        if dynamic:
+            lines.extend(["", "MÉMOIRE PERSONNALISÉE"])
+            for key, value in sorted(dynamic.items()):
+                lines.append(f"• {key}: {value}")
+        else:
+            lines.extend(["", "Aucun fait dynamique mémorisé pour le moment."])
+        QMessageBox.information(self, "Profile Memory", "\n".join(lines))
+
+    def _show_agent_memory(self) -> None:
+        items = self.agent.memory.recent_agent_results(limit=20)
+        if not items:
+            QMessageBox.information(
+                self,
+                "Agent Memory",
+                "Aucune tâche multi-agent enregistrée pour le moment.",
+            )
+            return
+
+        lines = []
+        for item in reversed(items):
+            lines.append(
+                f"[{item['workflow'].upper()}] {item['task']}\n"
+                f"{item['summary'][:500]}\n"
+            )
+        QMessageBox.information(self, "Agent Memory", "\n".join(lines))
 
     def _on_agent_progress(self, status: str) -> None:
         self.neural.set_state("thinking")
