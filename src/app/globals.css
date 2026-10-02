@@ -737,3 +737,72 @@
     animation: none !important;
   }
 }
+
+
+/* ============================================================
+   J.A.R.V.I.S. — COMMAND CENTER
+   Décor de console embarquée : réticule, anneaux et balayage.
+   ============================================================ */
+.jarvis-command-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+.jarvis-command-stage::before {
+  content: "";
+  position: absolute;
+  inset: 1.5rem 0 auto;
+  height: 28rem;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.38;
+  background:
+    linear-gradient(90deg, transparent 49.85%, color-mix(in oklch, var(--primary) 22%, transparent) 50%, transparent 50.15%),
+    linear-gradient(transparent 49.85%, color-mix(in oklch, var(--primary) 16%, transparent) 50%, transparent 50.15%),
+    radial-gradient(circle at center, transparent 0 31%, color-mix(in oklch, var(--primary) 14%, transparent) 31.3% 31.7%, transparent 32% 48%, color-mix(in oklch, var(--primary) 8%, transparent) 48.3% 48.7%, transparent 49%);
+  -webkit-mask-image: radial-gradient(circle at center, black 0 58%, transparent 78%);
+  mask-image: radial-gradient(circle at center, black 0 58%, transparent 78%);
+}
+
+.hud-reticle-ring {
+  border: 1px solid color-mix(in oklch, var(--primary) 28%, transparent);
+  box-shadow:
+    inset 0 0 28px color-mix(in oklch, var(--primary) 8%, transparent),
+    0 0 28px color-mix(in oklch, var(--primary) 8%, transparent);
+  animation: jarvis-reticle-rotate 24s linear infinite;
+}
+
+.hud-reticle-ring::before,
+.hud-reticle-ring::after {
+  content: "";
+  position: absolute;
+  inset: 10%;
+  border-radius: 999px;
+  border: 1px dashed color-mix(in oklch, var(--primary) 22%, transparent);
+}
+
+.hud-reticle-ring::after {
+  inset: 22%;
+  border-style: solid;
+  border-color: color-mix(in oklch, var(--gold) 18%, transparent);
+  animation: jarvis-reticle-rotate-rev 14s linear infinite;
+}
+
+@keyframes jarvis-reticle-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes jarvis-reticle-rotate-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-reticle-ring,
+  .hud-reticle-ring::after {
+    animation: none !important;
+  }
+}
