@@ -209,14 +209,14 @@ class VoskHandsFreeListener:
     @classmethod
     def _is_jarvis_keyword(cls, text: str) -> bool:
         value = cls._normalize_keyword(text)
-        return value in {
+        variants = (
             "jarvis",
             "jervis",
             "jarvise",
             "jarvice",
-            "jarvise",
             "jarvisse",
-        }
+        )
+        return any(token in value for token in variants)
 
     def start_keyword_monitor(
         self,
