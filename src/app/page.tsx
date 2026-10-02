@@ -248,7 +248,7 @@ export default function Page() {
 
   const handsFree = useHandsFreeSpeech({
     lang: "fr-FR",
-    silenceMs: 900,
+    silenceMs: 1100,
     onUtterance: (text) => {
       void runVoiceTurnRef.current(text);
     },
