@@ -28,6 +28,9 @@ class Settings:
     hf_provider: str = os.getenv("JARVIS_HF_PROVIDER", "auto")
     serper_api_key: str = os.getenv("SERPER_API_KEY", "")
     allow_pc_control: bool = os.getenv("JARVIS_ALLOW_PC_CONTROL", "false").lower() == "true"
+    confirm_safe_pc_actions: bool = os.getenv(
+        "JARVIS_CONFIRM_SAFE_PC_ACTIONS", "false"
+    ).lower() == "true"
     stt_provider: str = os.getenv("JARVIS_STT_PROVIDER", "vosk").strip().lower()
     hf_asr_model: str = os.getenv("JARVIS_HF_ASR_MODEL", "").strip()
     vosk_model_path: str = os.getenv("JARVIS_VOSK_MODEL_PATH", "").strip()
