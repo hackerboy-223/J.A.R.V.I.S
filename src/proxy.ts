@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE } from "@/lib/server/auth";
+
+const SESSION_COOKIE = "jarvis_session";
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
