@@ -1,7 +1,7 @@
 import vm from "node:vm";
 import os from "node:os";
 import ZAI from "z-ai-web-dev-sdk";
-import { AGENT_TOOLS, HUD_ACTIONS, type HudAction } from "@/lib/types";
+import { HUD_ACTIONS, type HudAction } from "@/lib/types";
 
 export interface ToolContext {
   signal?: AbortSignal;
