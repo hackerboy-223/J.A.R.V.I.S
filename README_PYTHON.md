@@ -140,3 +140,62 @@ The desktop application includes a native PySide6/QPainter neural core:
 - animation speed reacts to the active voice/agent state
 
 It is entirely native Qt and does not use the old browser Canvas renderer.
+
+
+## Open JARVIS functional parity
+
+The Python rewrite now follows the functional architecture of the MIT Open JARVIS reference more closely.
+
+### Agent modes
+
+The desktop mode selector exposes:
+
+- STANDARD — normal tool-using JARVIS
+- PARALLEL AGENTS — analyst + engineer + critic run concurrently, then JARVIS synthesizes
+- SEQUENTIAL CHAIN — plan -> build -> review
+- AI DEBATE — competing positions, rebuttal, final technical synthesis
+- DEEP RESEARCH — generates search queries, searches the web, reads public pages and synthesizes sources
+
+### Knowledge Base (RAG)
+
+Use **AJOUTER DOCUMENT** to index local text/code files.
+
+Supported formats include:
+
+```
+.txt .md .csv .json .py .js .ts .tsx .jsx
+.html .xml .log .yaml .yml .sql .ps1
+```
+
+Documents are chunked locally and searched with BM25. Relevant chunks are automatically injected into
+the standard agent context. The `knowledge_search` tool is also available to the model.
+
+### Profile Memory
+
+The **PROFILE** button displays the built-in H@CKERBOY profile plus facts explicitly stored by the
+`remember_fact` tool. JARVIS is instructed to use that tool only when the user explicitly asks it
+to remember something.
+
+### Agent Memory
+
+Non-standard workflow results are persisted in SQLite and shown through **AGENT MEMORY**.
+Recent prior work is injected back into the agent context when useful.
+
+### Web tools
+
+Standard mode now exposes:
+
+- `web_search` — Serper-backed web search
+- `read_page` — public page reader with private/local network blocking
+- `knowledge_search`
+- `remember_fact`
+- `system_status`
+- `pc_control`
+
+Deep Research requires:
+
+```env
+SERPER_API_KEY="..."
+```
+
+The page reader validates redirect targets to prevent redirects into localhost/private network ranges.
