@@ -31,7 +31,11 @@ class Settings:
     confirm_safe_pc_actions: bool = os.getenv(
         "JARVIS_CONFIRM_SAFE_PC_ACTIONS", "false"
     ).lower() == "true"
-    stt_provider: str = os.getenv("JARVIS_STT_PROVIDER", "vosk").strip().lower()
+    stt_provider: str = os.getenv("JARVIS_STT_PROVIDER", "hybrid").strip().lower()
+    groq_api_key: str = os.getenv("GROQ_API_KEY", "").strip()
+    groq_stt_model: str = os.getenv(
+        "JARVIS_GROQ_STT_MODEL", "whisper-large-v3-turbo"
+    ).strip()
     hf_asr_model: str = os.getenv("JARVIS_HF_ASR_MODEL", "").strip()
     vosk_model_path: str = os.getenv("JARVIS_VOSK_MODEL_PATH", "").strip()
     whisper_model: str = os.getenv("JARVIS_WHISPER_MODEL", "tiny")
