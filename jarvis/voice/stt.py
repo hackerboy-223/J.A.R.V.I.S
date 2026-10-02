@@ -373,7 +373,7 @@ class HandsFreeListener:
                 segments, _ = model.transcribe(
                     audio16,
                     language=settings.language,
-                    beam_size=1 if not final else 3,
+                    beam_size=1,
                     vad_filter=True,
                     condition_on_previous_text=False,
                 )
