@@ -103,12 +103,25 @@ def read_page(args: dict) -> dict:
         raise ValueError("url est requis.")
 
     target = _safe_public_url(url)
-    response = httpx.get(
-        target,
-        headers={"User-Agent": "JARVIS-Desktop/0.2"},
-        follow_redirects=True,
-        timeout=15,
-    )
+    response = None
+    current = target
+    for _ in range(4):
+        response = httpx.get(
+            current,
+            headers={"User-Agent": "JARVIS-Desktop/0.2"},
+            follow_redirects=False,
+            timeout=15,
+        )
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            break
+        location = response.headers.get("location")
+        if not location:
+            break
+        current = str(httpx.URL(current).join(location))
+        current = _safe_public_url(current)
+
+    if response is None:
+        raise RuntimeError("Lecture de page impossible.")
     response.raise_for_status()
 
     content_type = response.headers.get("content-type", "")
