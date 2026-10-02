@@ -224,3 +224,35 @@ JARVIS_WHISPER_PARTIAL_TRANSCRIPTS="false"
 
 Local interim Whisper transcription is disabled by default because repeated inference increases memory
 pressure. The neural HUD still reacts continuously to the live microphone level.
+
+
+## OpenRouter free provider
+
+OpenRouter is supported as a first-class J.A.R.V.I.S. provider.
+
+Recommended configuration:
+
+```env
+JARVIS_LLM_PROVIDER="openrouter"
+JARVIS_LLM_BASE_URL="https://openrouter.ai/api/v1"
+OPENROUTER_API_KEY="sk-or-v1-..."
+JARVIS_LLM_MODEL="openrouter/free"
+OPENROUTER_HTTP_REFERER=""
+OPENROUTER_X_TITLE="J.A.R.V.I.S."
+```
+
+The older `JARVIS_LLM_API_KEY` variable remains supported for backward compatibility, but
+`OPENROUTER_API_KEY` is clearer when using OpenRouter.
+
+J.A.R.V.I.S. sends its normal OpenAI-style tool definitions to `openrouter/free`. OpenRouter's free
+router can select a free model compatible with requested capabilities such as tool calling.
+
+If an OpenRouter request fails, J.A.R.V.I.S. attempts the configured local Ollama endpoint before
+surfacing an error.
+
+For low-memory hands-free voice, use Vosk independently of the LLM provider:
+
+```env
+JARVIS_STT_PROVIDER="vosk"
+JARVIS_VOSK_MODEL_PATH=""
+```
