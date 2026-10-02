@@ -177,6 +177,15 @@ function fmtValue(v: unknown): string {
 }
 
 const runJs: ToolFn = async (args) => {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.JARVIS_ALLOW_RUN_JS !== "true"
+  ) {
+    throw new Error(
+      "run_js est désactivé en production. Définis JARVIS_ALLOW_RUN_JS=true uniquement dans un environnement isolé."
+    );
+  }
+
   const code = str(args, "code");
   if (code.length > 20000) throw new Error("Code trop long (20 000 caractères max)");
   const logs: string[] = [];
