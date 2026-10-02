@@ -40,6 +40,14 @@ class MemoryStore:
                     result_json TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS agent_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task TEXT NOT NULL,
+                    workflow TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
 
@@ -78,3 +86,33 @@ class MemoryStore:
                 (tool, json.dumps(args), json.dumps(result, default=str)),
             )
             db.commit()
+
+
+    def add_agent_result(self, task: str, workflow: str, summary: str) -> None:
+        with self._lock, self._connect() as db:
+            db.execute(
+                "INSERT INTO agent_results(task, workflow, summary) VALUES(?,?,?)",
+                (task[:4000], workflow[:40], summary[:12000]),
+            )
+            db.execute(
+                """
+                DELETE FROM agent_results
+                WHERE id NOT IN (
+                    SELECT id FROM agent_results ORDER BY id DESC LIMIT 50
+                )
+                """
+            )
+            db.commit()
+
+    def recent_agent_results(self, limit: int = 8) -> list[dict[str, str]]:
+        with self._lock, self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT task, workflow, summary, created_at
+                FROM agent_results
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
