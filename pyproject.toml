@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "jarvis-desktop"
 version = "0.1.0"
@@ -15,7 +19,10 @@ dependencies = [
 ]
 
 [project.scripts]
-jarvis = "main:main"
+jarvis = "jarvis.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
 
 [tool.ruff]
 line-length = 100
