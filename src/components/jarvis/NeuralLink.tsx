@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { openStandalone, type MicFailure, type MicState } from "@/hooks/use-jarvis-voice";
 
 /**
- * LIEN NEURAL — animation plein écran façon « réseau de neurones » (style Techenclair).
+ * INTERFACE HOLOGRAPHIQUE — animation plein écran façon « réseau de neurones » (style Techenclair).
  *
  * Canvas 2D avec projection 3D :
  *  - nuage de nœuds dans un ellipsoïde (RNG seedé → déterministe)
@@ -537,7 +537,7 @@ const PHASE_META: Record<
 > = {
   idle: {
     label: "VEILLE",
-    headline: "LIEN NEURAL ÉTABLI",
+    headline: "INTERFACE HOLOGRAPHIQUE ÉTABLIE",
     pillCls: "border-primary/40 bg-primary/10 text-primary",
   },
   listening: {
@@ -725,7 +725,7 @@ export function NeuralLink({
   };
 
   const bodyText = (() => {
-    if (phase === "listening") return "● ENREGISTREMENT — parlez, Monsieur.";
+    if (phase === "listening") return "● CANAL VOCAL OUVERT — je vous écoute, Monsieur.";
     if (phase === "transcribing") return "Conversion de la parole en texte…";
     if (phase === "thinking") {
       return transcript ? `« ${transcript} »` : (statusText ?? "");
@@ -768,9 +768,9 @@ export function NeuralLink({
       <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:p-6">
         <div className="animate-neural-rise">
           <p className="glow-text font-hud text-xs font-bold tracking-[0.3em] text-primary sm:text-sm">
-            LIEN NEURAL
+            INTERFACE HOLOGRAPHIQUE
           </p>
-          <p className="hud-label mt-0.5">SYNAPSE J.A.R.V.I.S. — CANAL VOCAL DIRECT</p>
+          <p className="hud-label mt-0.5">J.A.R.V.I.S. CORE — CANAL VOCAL DIRECT</p>
           <span
             role="status"
             className={cn(
