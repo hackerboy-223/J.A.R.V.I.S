@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import re
 import threading
+import time
 import unicodedata
 
 import pyttsx3
@@ -148,6 +149,8 @@ def prepare_for_speech(text: str) -> str:
 class Speaker:
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._speaking = threading.Event()
 
     def _pick_voice(self, engine) -> str | None:
         voices = engine.getProperty("voices") or []
@@ -180,32 +183,74 @@ class Speaker:
         scored.sort(reverse=True)
         return scored[0][1]
 
-    def speak(self, text: str) -> None:
+    @staticmethod
+    def _avoid_wake_word(text: str) -> str:
+        # Prevent J.A.R.V.I.S. from waking itself through speaker echo.
+        text = re.sub(
+            r"(?i)\\bJ\\.?A\\.?R\\.?V\\.?I\\.?S\\.?\\b[:,]?",
+            "",
+            text,
+        )
+        text = re.sub(r"(?i)\\bjarvis\\b[:,]?", "", text)
+        return re.sub(r"[ \\t]{2,}", " ", text).strip()
+
+    def speak(self, text: str, *, avoid_wake_word: bool = True) -> None:
         clean = prepare_for_speech(text)
+        if avoid_wake_word:
+            clean = self._avoid_wake_word(clean)
         if not clean:
             return
 
         with self._lock:
+            self._stop_event.clear()
+            self._speaking.set()
             engine = pyttsx3.init()
+            loop_started = False
+
             try:
                 voice_id = self._pick_voice(engine)
                 if voice_id:
                     engine.setProperty("voice", voice_id)
 
-                # Slightly slower than before: more natural for full sentences.
                 engine.setProperty("rate", 170)
                 engine.setProperty("volume", 1.0)
                 engine.say(clean)
-                engine.runAndWait()
+
+                # External loop lets stop() interrupt from another thread.
+                engine.startLoop(False)
+                loop_started = True
+
+                while engine.isBusy():
+                    if self._stop_event.is_set():
+                        engine.stop()
+                        break
+                    engine.iterate()
+                    time.sleep(0.012)
             finally:
-                engine.stop()
+                try:
+                    engine.stop()
+                except Exception:
+                    pass
+
+                if loop_started:
+                    try:
+                        engine.endLoop()
+                    except Exception:
+                        pass
+
+                self._speaking.clear()
+                self._stop_event.clear()
 
     def test(self) -> None:
         self.speak(
             "Systèmes vocaux opérationnels. "
-            "Je lirai désormais uniquement le contenu utile, H@CKERBOY."
+            "Je lirai désormais uniquement le contenu utile, H@CKERBOY.",
+            avoid_wake_word=False,
         )
 
     def stop(self) -> None:
-        # A dedicated interruptible TTS worker will handle barge-in later.
-        return
+        self._stop_event.set()
+
+    @property
+    def is_speaking(self) -> bool:
+        return self._speaking.is_set()
