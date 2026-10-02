@@ -30,6 +30,8 @@ class Bridge(QObject):
     partial = Signal(str)
     final_transcript = Signal(str)
     voice_state = Signal(str)
+    voice_error = Signal(str)
+    voice_level = Signal(float)
     confirm_request = Signal(object)
 
 
@@ -44,6 +46,8 @@ class MainWindow(QMainWindow):
         self.bridge.partial.connect(self._on_partial)
         self.bridge.final_transcript.connect(self._on_final_transcript)
         self.bridge.voice_state.connect(self._set_voice_state)
+        self.bridge.voice_error.connect(self._on_voice_error)
+        self.bridge.voice_level.connect(self._on_voice_level)
         self.bridge.confirm_request.connect(self._handle_confirm_request)
 
         self.speaker = Speaker()
@@ -118,6 +122,10 @@ class MainWindow(QMainWindow):
         self.voice_button = QPushButton("MAINS LIBRES : OFF")
         self.voice_button.clicked.connect(self._toggle_voice)
         controls.addWidget(self.voice_button)
+
+        diagnostic_button = QPushButton("DIAGNOSTIC MICRO")
+        diagnostic_button.clicked.connect(self._diagnose_microphone)
+        controls.addWidget(diagnostic_button)
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -166,6 +174,9 @@ class MainWindow(QMainWindow):
             self.listener = HandsFreeListener(
                 on_partial=lambda text: self.bridge.partial.emit(text),
                 on_final=lambda text: self.bridge.final_transcript.emit(text),
+                on_status=lambda text: self.bridge.voice_state.emit(text),
+                on_error=lambda text: self.bridge.voice_error.emit(text),
+                on_level=lambda value: self.bridge.voice_level.emit(value),
             )
         return self.listener
 
@@ -180,13 +191,72 @@ class MainWindow(QMainWindow):
 
         try:
             self.hands_free = True
-            self._ensure_listener().start()
             self.voice_button.setText("MAINS LIBRES : ON")
-            self._set_voice_state("LISTENING · TRANSCRIPTION LOCALE")
+            self._set_voice_state("MIC · INITIALISATION…")
+            self._ensure_listener().start()
         except Exception as exc:
             self.hands_free = False
             self.voice_button.setText("MAINS LIBRES : OFF")
             QMessageBox.critical(self, "Microphone", str(exc))
+
+    def _diagnose_microphone(self) -> None:
+        try:
+            devices = HandsFreeListener.input_devices()
+        except Exception as exc:
+            QMessageBox.critical(self, "Diagnostic microphone", str(exc))
+            return
+
+        if not devices:
+            QMessageBox.warning(
+                self,
+                "Diagnostic microphone",
+                "Aucun périphérique d'entrée audio n'a été détecté.",
+            )
+            return
+
+        lines = ["Entrées audio détectées :", ""]
+        for dev in devices:
+            lines.append(
+                f"[{dev['index']}] {dev['name']} · "
+                f"{dev['channels']} canal(aux) · {dev['sample_rate']} Hz"
+            )
+
+        lines.extend(
+            [
+                "",
+                "Micro configuré : "
+                + (settings.audio_device or "périphérique Windows par défaut"),
+                "",
+                "Pour forcer un micro : JARVIS_AUDIO_DEVICE=\"index ou partie du nom\"",
+            ]
+        )
+        QMessageBox.information(
+            self,
+            "Diagnostic microphone",
+            "\n".join(lines),
+        )
+
+    def _on_voice_level(self, level: float) -> None:
+        self.neural.set_audio_level(level)
+
+    def _on_voice_error(self, message: str) -> None:
+        self.neural.set_audio_level(0.0)
+        self._set_voice_state("VOICE ERROR")
+        self.live_caption.setText(f"VOICE ERROR · {message}")
+        self.chat.append(
+            f"<br><b style='color:#ff5757'>VOICE DIAGNOSTIC</b><br>{message}"
+        )
+
+        fatal = (
+            "Whisper" in message
+            or "microphone" in message.lower()
+            or "périphérique" in message.lower()
+        )
+        if fatal:
+            self.hands_free = False
+            self.voice_button.setText("MAINS LIBRES : OFF")
+            if self.listener is not None:
+                self.listener.stop()
 
     def _on_partial(self, text: str) -> None:
         if self.hands_free:
@@ -196,7 +266,7 @@ class MainWindow(QMainWindow):
         if not self.hands_free or not text.strip():
             return
         if self.listener is not None:
-            self.listener.stop()
+            self.listener.shutdown()
         self.live_caption.setText(f"HEARD · {text}")
         self._submit(text, spoken=True)
 
@@ -224,13 +294,16 @@ class MainWindow(QMainWindow):
 
         if self.hands_free:
             self.bridge.voice_state.emit("SPEAKING")
-            self.speaker.speak(answer)
-            if self.hands_free:
-                try:
-                    self._ensure_listener().start()
-                    self.bridge.voice_state.emit("LISTENING · TRANSCRIPTION LOCALE")
-                except Exception as exc:
-                    self.bridge.voice_state.emit(f"VOICE ERROR · {exc}")
+            try:
+                self.speaker.speak(answer)
+            except Exception as exc:
+                self.bridge.voice_error.emit(f"Erreur synthèse vocale : {exc}")
+            finally:
+                if self.hands_free:
+                    try:
+                        self._ensure_listener().start()
+                    except Exception as exc:
+                        self.bridge.voice_error.emit(f"Erreur reprise microphone : {exc}")
 
     def _on_answer(self, answer: str) -> None:
         self.chat.append(f"<br><b style='color:#00d4ff'>J.A.R.V.I.S.</b><br>{answer}")
@@ -243,9 +316,16 @@ class MainWindow(QMainWindow):
         self.neural.set_state(state)
         self.core_status.setText(state)
         if state.startswith("LISTENING"):
-            self.live_caption.setText("LISTENING · Parlez naturellement, H@CKERBOY.")
+            if "VOIX DÉTECTÉE" not in state:
+                self.live_caption.setText("LISTENING · Parlez naturellement, H@CKERBOY.")
+        elif state.startswith("WHISPER"):
+            self.live_caption.setText(state)
+        elif state.startswith("TRANSCRIBING"):
+            self.live_caption.setText(state)
         elif state == "SPEAKING":
             self.live_caption.setText("SPEAKING · J.A.R.V.I.S. répond…")
+        elif state.startswith("MIC"):
+            self.live_caption.setText(state)
 
     def closeEvent(self, event) -> None:
         if self.listener is not None:
