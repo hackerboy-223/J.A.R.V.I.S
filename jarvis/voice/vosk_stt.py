@@ -4,6 +4,7 @@ import json
 import queue
 import threading
 import time
+import unicodedata
 import zipfile
 from pathlib import Path
 from collections.abc import Callable
@@ -48,6 +49,12 @@ class VoskHandsFreeListener:
         self._model: Model | None = None
         self._last_partial = ""
         self._last_voice_at = time.monotonic()
+
+        self._keyword_active = threading.Event()
+        self._keyword_q: queue.Queue[bytes] = queue.Queue(maxsize=40)
+        self._keyword_stream: sd.RawInputStream | None = None
+        self._keyword_thread: threading.Thread | None = None
+        self._keyword_started_at = 0.0
 
         SetLogLevel(-1)
 
@@ -190,7 +197,146 @@ class VoskHandsFreeListener:
                 pass
         self.on_level(0.0)
 
+    @staticmethod
+    def _normalize_keyword(text: str) -> str:
+        normalized = unicodedata.normalize("NFKD", text.lower())
+        normalized = "".join(
+            ch for ch in normalized
+            if not unicodedata.combining(ch)
+        )
+        return "".join(ch for ch in normalized if ch.isalnum())
+
+    @classmethod
+    def _is_jarvis_keyword(cls, text: str) -> bool:
+        value = cls._normalize_keyword(text)
+        return value in {
+            "jarvis",
+            "jervis",
+            "jarvise",
+            "jarvice",
+            "jarvise",
+            "jarvisse",
+        }
+
+    def start_keyword_monitor(
+        self,
+        on_keyword: Callable[[], None],
+    ) -> None:
+        if self._keyword_active.is_set():
+            return
+        if self._shutdown.is_set():
+            return
+
+        # Normal recognition and wake-word recognition must never own the mic together.
+        if self._active.is_set():
+            self.stop()
+
+        device = self._selected_device()
+        model = self._ensure_model()
+
+        self._drain_keyword_queue()
+        self._keyword_active.set()
+        self._keyword_started_at = time.monotonic()
+
+        grammar = json.dumps(
+            ["jarvis", "jervis", "jar vise", "jarvice", "[unk]"],
+            ensure_ascii=False,
+        )
+        recognizer = KaldiRecognizer(model, self.sample_rate, grammar)
+        recognizer.SetWords(False)
+
+        self._keyword_stream = sd.RawInputStream(
+            samplerate=self.sample_rate,
+            blocksize=2000,
+            device=device,
+            dtype="int16",
+            channels=1,
+            callback=self._keyword_callback,
+        )
+        self._keyword_stream.start()
+
+        self._keyword_thread = threading.Thread(
+            target=self._keyword_loop,
+            args=(recognizer, on_keyword),
+            name="jarvis-barge-in",
+            daemon=True,
+        )
+        self._keyword_thread.start()
+        self.on_status("SPEAKING · DITES « JARVIS » POUR COUPER")
+
+    def stop_keyword_monitor(self) -> None:
+        self._keyword_active.clear()
+        stream = self._keyword_stream
+        self._keyword_stream = None
+        if stream is not None:
+            try:
+                stream.stop()
+            except Exception:
+                pass
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    def _drain_keyword_queue(self) -> None:
+        while True:
+            try:
+                self._keyword_q.get_nowait()
+            except queue.Empty:
+                return
+
+    def _keyword_callback(self, indata, frames, time_info, status) -> None:
+        del frames, time_info
+        if status:
+            return
+        if not self._keyword_active.is_set():
+            return
+
+        raw = bytes(indata)
+        try:
+            self._keyword_q.put_nowait(raw)
+        except queue.Full:
+            try:
+                self._keyword_q.get_nowait()
+                self._keyword_q.put_nowait(raw)
+            except queue.Empty:
+                pass
+
+    def _keyword_loop(
+        self,
+        recognizer: KaldiRecognizer,
+        on_keyword: Callable[[], None],
+    ) -> None:
+        try:
+            while self._keyword_active.is_set() and not self._shutdown.is_set():
+                try:
+                    data = self._keyword_q.get(timeout=0.20)
+                except queue.Empty:
+                    continue
+
+                # Short grace period avoids startup clicks / the first TTS phoneme.
+                if time.monotonic() - self._keyword_started_at < 0.45:
+                    continue
+
+                candidates: list[str] = []
+                if recognizer.AcceptWaveform(data):
+                    payload = json.loads(recognizer.Result())
+                    candidates.append(str(payload.get("text", "")).strip())
+                else:
+                    payload = json.loads(recognizer.PartialResult())
+                    candidates.append(str(payload.get("partial", "")).strip())
+
+                if any(self._is_jarvis_keyword(text) for text in candidates if text):
+                    self.stop_keyword_monitor()
+                    self.on_status("INTERRUPTED · WAKE WORD JARVIS")
+                    on_keyword()
+                    return
+        except Exception as exc:
+            self.stop_keyword_monitor()
+            self.on_error(f"Erreur wake-word Vosk : {exc}")
+
     def shutdown(self) -> None:
+        self.stop_keyword_monitor()
         self.stop()
         self._shutdown.set()
 
