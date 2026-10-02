@@ -38,6 +38,8 @@ class LLMClient:
         self.hf_token = settings.hf_token
         self.hf_model = settings.hf_model
         self.hf_provider = settings.hf_provider
+        self.openrouter_referer = settings.openrouter_referer
+        self.openrouter_title = settings.openrouter_title
         self.ollama_base_url = settings.ollama_base_url.rstrip("/")
         self.ollama_model = settings.ollama_model
 
@@ -89,6 +91,61 @@ class LLMClient:
             result["tool_calls"] = [_tool_call_to_dict(call) for call in raw_calls]
 
         return {"message": result}
+
+    def _complete_openrouter(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        if not self.api_key:
+            raise RuntimeError(
+                "Clé OpenRouter absente. Configure OPENROUTER_API_KEY "
+                "ou JARVIS_LLM_API_KEY dans .env."
+            )
+
+        payload: dict[str, Any] = {
+            "model": self.model or "openrouter/free",
+            "messages": messages,
+            "temperature": 0.4,
+            "max_tokens": 1536,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "X-Title": self.openrouter_title or "J.A.R.V.I.S.",
+        }
+        if self.openrouter_referer:
+            headers["HTTP-Referer"] = self.openrouter_referer
+
+        response = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=90,
+        )
+
+        if response.status_code == 401:
+            raise RuntimeError("Clé OpenRouter invalide ou non autorisée.")
+        if response.status_code == 402:
+            raise RuntimeError("OpenRouter demande des crédits pour cette requête.")
+        if response.status_code == 429:
+            raise RuntimeError(
+                "Limite OpenRouter atteinte. Le quota gratuit peut être temporairement épuisé."
+            )
+
+        response.raise_for_status()
+        data = response.json()
+
+        if not data.get("choices"):
+            error = data.get("error") or {}
+            message = error.get("message") if isinstance(error, dict) else str(error)
+            raise RuntimeError(message or "Réponse OpenRouter vide.")
+
+        return {"message": data["choices"][0]["message"]}
 
     def _complete_openai_compatible(
         self,
@@ -159,6 +216,19 @@ class LLMClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        if self.provider in {"openrouter", "open_router"}:
+            try:
+                return self._complete_openrouter(messages, tools)
+            except Exception as openrouter_exc:
+                try:
+                    return self._complete_ollama(messages, tools)
+                except Exception as ollama_exc:
+                    raise RuntimeError(
+                        "OpenRouter est indisponible et aucun Ollama local utilisable "
+                        "n'a été détecté. "
+                        f"OpenRouter: {openrouter_exc} | Ollama: {ollama_exc}"
+                    ) from openrouter_exc
+
         if self.provider in {"huggingface", "hf"}:
             try:
                 return self._complete_huggingface(messages, tools)
@@ -174,5 +244,9 @@ class LLMClient:
 
         if self.provider in {"ollama", "local"}:
             return self._complete_ollama(messages, tools)
+
+        # Backward compatibility: an OpenRouter base URL also gets OpenRouter headers.
+        if "openrouter.ai" in self.base_url:
+            return self._complete_openrouter(messages, tools)
 
         return self._complete_openai_compatible(messages, tools)
