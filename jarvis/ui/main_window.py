@@ -227,6 +227,59 @@ class MainWindow(QMainWindow):
             self.voice_button.setText("MAINS LIBRES : OFF")
             QMessageBox.critical(self, "Microphone", str(exc))
 
+    def _add_knowledge_files(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Ajouter à la Knowledge Base",
+            "",
+            "Documents texte (*.txt *.md *.csv *.json *.py *.js *.ts *.tsx *.jsx *.html *.xml *.log *.yaml *.yml *.sql *.ps1);;Tous les fichiers (*)",
+        )
+        if not paths:
+            return
+
+        imported = []
+        errors = []
+        for raw in paths:
+            try:
+                result = self.agent.knowledge.add_file(Path(raw))
+                imported.append(f"{result['name']} · {result['chunks']} chunks")
+            except Exception as exc:
+                errors.append(f"{Path(raw).name}: {exc}")
+
+        if imported:
+            self.chat.append(
+                "<br><b style='color:#00d4ff'>KNOWLEDGE BASE</b><br>"
+                + "<br>".join(imported)
+            )
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Knowledge Base",
+                "Certains fichiers n'ont pas été importés:\n\n" + "\n".join(errors),
+            )
+
+    def _show_knowledge(self) -> None:
+        docs = self.agent.knowledge.list_documents()
+        if not docs:
+            QMessageBox.information(
+                self,
+                "Knowledge Base",
+                "Aucun document indexé pour le moment.",
+            )
+            return
+
+        lines = [f"{len(docs)} document(s) indexé(s)", ""]
+        for doc in docs[:30]:
+            lines.append(
+                f"• {doc['name']} · {doc['chunks']} chunks · {doc['size_chars']} caractères"
+            )
+        QMessageBox.information(self, "Knowledge Base", "\n".join(lines))
+
+    def _on_agent_progress(self, status: str) -> None:
+        self.neural.set_state("thinking")
+        self.core_status.setText(status)
+        self.live_caption.setText(status)
+
     def _test_voice(self) -> None:
         was_hands_free = self.hands_free
         if was_hands_free and self.listener is not None:
@@ -328,15 +381,20 @@ class MainWindow(QMainWindow):
         self.chat.append(f"<br><b style='color:#ffc864'>H@CKERBOY</b><br>{text}")
         self.input.setEnabled(False)
         self._set_voice_state("THINKING")
+        mode = str(self.mode_select.currentData() or "standard")
         threading.Thread(
             target=self._ask_worker,
-            args=(text, spoken),
+            args=(text, spoken, mode),
             daemon=True,
         ).start()
 
-    def _ask_worker(self, text: str, spoken: bool) -> None:
+    def _ask_worker(self, text: str, spoken: bool, mode: str) -> None:
         del spoken
-        answer = self.agent.ask(text)
+        answer = self.agent.ask(
+            text,
+            mode=mode,
+            progress=lambda status: self.bridge.agent_progress.emit(status),
+        )
         self.bridge.answer.emit(answer)
 
         if self.hands_free:
