@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from jarvis.core.llm import LLMClient
+from jarvis.tools.web import read_page, web_search
 
 
 ProgressFn = Callable[[str], None]
@@ -128,3 +129,61 @@ class WorkflowEngine:
             f"Tâche: {task}\n\n" + "\n\n".join(notes),
         )
         return WorkflowResult("debate", answer, notes)
+
+
+    def research(self, task: str, progress: ProgressFn | None = None) -> WorkflowResult:
+        progress = progress or (lambda _: None)
+        progress("RESEARCH · GÉNÉRATION DES REQUÊTES")
+
+        query_text = self._simple_call(
+            "Génère exactement 3 requêtes web courtes et différentes. Une par ligne, sans puces.",
+            task,
+        )
+        queries = [line.strip(" -•\t") for line in query_text.splitlines() if line.strip()]
+        queries = queries[:3] or [task]
+
+        gathered: list[str] = []
+        sources: list[str] = []
+
+        for index, query in enumerate(queries, start=1):
+            progress(f"RESEARCH · SEARCH {index}/{len(queries)}")
+            try:
+                search = web_search({"query": query, "num": 5})
+            except Exception as exc:
+                gathered.append(f"Recherche '{query}' indisponible: {exc}")
+                continue
+
+            for item in search.get("results", [])[:3]:
+                url = str(item.get("url", ""))
+                title = str(item.get("title", ""))
+                snippet = str(item.get("snippet", ""))
+                sources.append(url)
+                context = f"{title}\n{snippet}"
+                try:
+                    page = read_page({"url": url})
+                    body = str(page.get("text", ""))[:6000]
+                    if body:
+                        context += f"\n{body}"
+                except Exception:
+                    pass
+                gathered.append(f"SOURCE: {url}\n{context}")
+
+        progress("RESEARCH · SYNTHÈSE")
+        if not gathered:
+            answer = (
+                "La recherche web n'a produit aucune source exploitable. "
+                "Vérifie SERPER_API_KEY ou reformule la demande."
+            )
+            return WorkflowResult("research", answer, [])
+
+        evidence = "\n\n".join(gathered)[:36000]
+        answer = self._simple_call(
+            (
+                "Tu es un analyste de recherche. Réponds uniquement à partir des sources fournies. "
+                "Distingue faits, incertitudes et conclusions. Cite les URLs utiles entre parenthèses."
+            ),
+            f"Question:\n{task}\n\nSources:\n{evidence}",
+        )
+        unique_sources = list(dict.fromkeys(sources))
+        notes = [f"Source: {url}" for url in unique_sources[:12]]
+        return WorkflowResult("research", answer, notes)
