@@ -81,6 +81,7 @@ export function useHandsFreeSpeech({
   const recognitionRef = React.useRef<BrowserSpeechRecognition | null>(null);
   const wantedRef = React.useRef(false);
   const processingRef = React.useRef(false);
+  const pausedRef = React.useRef(false);
   const finalRef = React.useRef("");
   const interimRef = React.useRef("");
   const silenceTimerRef = React.useRef<number | null>(null);
@@ -143,7 +144,7 @@ export function useHandsFreeSpeech({
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
-      if (!wantedRef.current || processingRef.current) {
+      if (!wantedRef.current || processingRef.current || pausedRef.current) {
         try {
           recognition.stop();
         } catch {
@@ -156,7 +157,7 @@ export function useHandsFreeSpeech({
     };
 
     recognition.onresult = (event) => {
-      if (!wantedRef.current || processingRef.current) return;
+      if (!wantedRef.current || processingRef.current || pausedRef.current) return;
 
       let interim = "";
       let receivedFinal = false;
@@ -201,7 +202,7 @@ export function useHandsFreeSpeech({
     recognition.onend = () => {
       setListening(false);
 
-      if (!wantedRef.current || processingRef.current) return;
+      if (!wantedRef.current || processingRef.current || pausedRef.current) return;
 
       restartTimerRef.current = window.setTimeout(() => {
         startRecognitionRef.current();
@@ -244,6 +245,7 @@ export function useHandsFreeSpeech({
     clearTimers();
     wantedRef.current = true;
     processingRef.current = false;
+    pausedRef.current = false;
     finalRef.current = "";
     interimRef.current = "";
     setEnabled(true);
@@ -256,6 +258,7 @@ export function useHandsFreeSpeech({
 
   const pause = React.useCallback(() => {
     clearTimers();
+    pausedRef.current = true;
     setListening(false);
     try {
       recognitionRef.current?.stop();
@@ -268,6 +271,7 @@ export function useHandsFreeSpeech({
     if (!wantedRef.current) return;
 
     clearTimers();
+    pausedRef.current = false;
     finalRef.current = "";
     interimRef.current = "";
     processingRef.current = false;
@@ -281,6 +285,7 @@ export function useHandsFreeSpeech({
     clearTimers();
     wantedRef.current = false;
     processingRef.current = false;
+    pausedRef.current = false;
     finalRef.current = "";
     interimRef.current = "";
     setEnabled(false);
