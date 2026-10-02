@@ -48,7 +48,7 @@ class HandsFreeListener:
         self._model_lock = threading.Lock()
         self._input_rate = target_rate
         self._utterance_id = 0
-        self._last_partial_id = -1
+        self._last_partial_text = ""
 
     @staticmethod
     def input_devices() -> list[dict[str, object]]:
@@ -182,6 +182,16 @@ class HandsFreeListener:
         self._close_stream()
         self.on_level(0.0)
 
+        capture = self._capture_thread
+        if (
+            capture is not None
+            and capture.is_alive()
+            and capture is not threading.current_thread()
+        ):
+            capture.join(timeout=0.7)
+        if capture is self._capture_thread:
+            self._capture_thread = None
+
     def shutdown(self) -> None:
         self.stop()
         self._shutdown.set()
@@ -282,18 +292,18 @@ class HandsFreeListener:
                 if silence >= 0.90 and duration >= 0.40:
                     self.on_status("TRANSCRIBING · PHRASE REÇUE")
                     self._queue_transcription(chunks, final=True, utterance_id=utterance_id)
-                    chunks = []
-                    pre_roll.clear()
-                    speech_started = False
-                    last_partial_at = 0.0
+                    self._active.clear()
+                    self._close_stream()
+                    self.on_level(0.0)
+                    return
 
                 if duration >= 18.0:
                     self.on_status("TRANSCRIBING · SEGMENT LONG")
                     self._queue_transcription(chunks, final=True, utterance_id=utterance_id)
-                    chunks = []
-                    pre_roll.clear()
-                    speech_started = False
-                    last_partial_at = 0.0
+                    self._active.clear()
+                    self._close_stream()
+                    self.on_level(0.0)
+                    return
         except Exception as exc:
             self.on_error(f"Erreur capture microphone : {exc}")
             self._active.clear()
@@ -372,10 +382,10 @@ class HandsFreeListener:
                     continue
 
                 if final:
-                    self._last_partial_id = -1
+                    self._last_partial_text = ""
                     self.on_final(text)
-                elif utterance_id == self._utterance_id and utterance_id != self._last_partial_id:
-                    self._last_partial_id = utterance_id
+                elif utterance_id == self._utterance_id and text != self._last_partial_text:
+                    self._last_partial_text = text
                     self.on_partial(text)
             except Exception as exc:
                 self.on_error(f"Erreur transcription Whisper : {exc}")
