@@ -150,7 +150,17 @@ class HandsFreeListener:
                 self.on_status("LISTENING · HF ASR PRÊT")
                 return
 
-            self._ensure_model()
+            try:
+                self._ensure_model()
+            except Exception as exc:
+                if self._is_memory_error(exc) and self._local_model_name != "tiny":
+                    self.on_status("WHISPER · MÉMOIRE FAIBLE → FALLBACK TINY")
+                    self._release_local_model()
+                    self._local_model_name = "tiny"
+                    self._ensure_model()
+                else:
+                    raise
+
             if self._active.is_set():
                 self.on_status(f"LISTENING · WHISPER {self._local_model_name.upper()} PRÊT")
         except Exception as exc:
