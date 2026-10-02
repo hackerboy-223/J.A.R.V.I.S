@@ -25,7 +25,7 @@ from jarvis.config import settings
 from jarvis.core.agent import JarvisAgent
 from jarvis.profile import OWNER_PROFILE
 from jarvis.ui.neural_widget import NeuralCoreWidget
-from jarvis.voice.stt import HandsFreeListener
+from jarvis.voice.vosk_stt import VoskHandsFreeListener as HandsFreeListener
 from jarvis.voice.tts import Speaker
 
 
