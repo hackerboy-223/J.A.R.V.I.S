@@ -388,6 +388,7 @@ class MainWindow(QMainWindow):
         lower_message = message.lower()
         fatal = (
             "whisper" in lower_message
+            or "vosk" in lower_message
             or "microphone" in lower_message
             or "périphérique" in lower_message
             or "mémoire insuffisante" in lower_message
@@ -464,7 +465,7 @@ class MainWindow(QMainWindow):
         if state.startswith("LISTENING"):
             if "VOIX DÉTECTÉE" not in state:
                 self.live_caption.setText("LISTENING · Parlez naturellement, H@CKERBOY.")
-        elif state.startswith("WHISPER"):
+        elif state.startswith("WHISPER") or state.startswith("VOSK"):
             self.live_caption.setText(state)
         elif state.startswith("TRANSCRIBING"):
             self.live_caption.setText(state)
