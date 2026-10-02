@@ -91,11 +91,14 @@ class MainWindow(QMainWindow):
         title.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
         title.setStyleSheet("color:#00d4ff")
 
-        provider_label = (
-            f"HF · {settings.hf_model}"
-            if settings.llm_provider in {"huggingface", "hf"}
-            else f"{settings.llm_provider.upper()} · {settings.llm_model}"
-        )
+        if settings.llm_provider in {"openrouter", "open_router"}:
+            provider_label = f"OPENROUTER · {settings.llm_model}"
+        elif settings.llm_provider in {"huggingface", "hf"}:
+            provider_label = f"HF · {settings.hf_model}"
+        elif settings.llm_provider in {"ollama", "local"}:
+            provider_label = f"OLLAMA · {settings.ollama_model}"
+        else:
+            provider_label = f"{settings.llm_provider.upper()} · {settings.llm_model}"
         self.core_status = QLabel(f"CORE ONLINE · {provider_label}")
         self.core_status.setStyleSheet("color:#ffc864")
 
