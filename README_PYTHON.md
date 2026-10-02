@@ -110,3 +110,33 @@ Still to migrate/build:
 
 The old Next.js implementation remains in this branch history during migration so features can be
 compared. Remove the TypeScript/Next.js tree only after Python feature parity is validated.
+
+
+## Hugging Face brain
+
+Hugging Face is the default Python brain provider.
+
+```env
+JARVIS_LLM_PROVIDER="huggingface"
+HF_TOKEN="hf_..."
+JARVIS_HF_MODEL="zai-org/GLM-5.3-Flash"
+JARVIS_HF_PROVIDER="auto"
+```
+
+With `JARVIS_HF_PROVIDER=auto`, Hugging Face selects an available inference provider for the model.
+The Python agent keeps tool calling enabled, so compatible chat models can still invoke
+`system_status` and `pc_control`.
+
+## Neural HUD
+
+The desktop application includes a native PySide6/QPainter neural core:
+
+- animated neural nodes and links
+- central reactor/core
+- scanner sweep
+- cyan idle/listening/speaking states
+- amber thinking state
+- red error state
+- animation speed reacts to the active voice/agent state
+
+It is entirely native Qt and does not use the old browser Canvas renderer.
