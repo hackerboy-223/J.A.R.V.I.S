@@ -160,7 +160,7 @@ export function useHandsFreeSpeech({
       if (!wantedRef.current || processingRef.current || pausedRef.current) return;
 
       let interim = "";
-       for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const text = result?.[0]?.transcript?.trim() ?? "";
         if (!text) continue;
@@ -215,7 +215,7 @@ export function useHandsFreeSpeech({
   }, [commitUtterance, lang, silenceMs]);
 
   const startRecognition = React.useCallback(() => {
-    if (!wantedRef.current || processingRef.current) return;
+    if (!wantedRef.current || processingRef.current || pausedRef.current) return;
 
     const recognition = ensureRecognition();
     if (!recognition) {
