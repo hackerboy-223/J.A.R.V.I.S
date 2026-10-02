@@ -38,6 +38,8 @@ class LLMClient:
         self.hf_token = settings.hf_token
         self.hf_model = settings.hf_model
         self.hf_provider = settings.hf_provider
+        self.ollama_base_url = settings.ollama_base_url.rstrip("/")
+        self.ollama_model = settings.ollama_model
 
     def _is_local(self) -> bool:
         return "localhost" in self.base_url or "127.0.0.1" in self.base_url
@@ -128,12 +130,49 @@ class LLMClient:
         data = response.json()
         return {"message": data["choices"][0]["message"]}
 
+    def _complete_ollama(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.ollama_model,
+            "messages": messages,
+            "temperature": 0.4,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        response = httpx.post(
+            f"{self.ollama_base_url}/chat/completions",
+            headers={"Content-Type": "application/json"},
+            json=payload,
+            timeout=90,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return {"message": data["choices"][0]["message"]}
+
     def complete(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if self.provider in {"huggingface", "hf"}:
-            return self._complete_huggingface(messages, tools)
+            try:
+                return self._complete_huggingface(messages, tools)
+            except Exception as hf_exc:
+                try:
+                    return self._complete_ollama(messages, tools)
+                except Exception as ollama_exc:
+                    raise RuntimeError(
+                        "Hugging Face est indisponible (quota/crédits ou provider) "
+                        "et aucun Ollama local utilisable n'a été détecté. "
+                        f"HF: {hf_exc} | Ollama: {ollama_exc}"
+                    ) from hf_exc
+
+        if self.provider in {"ollama", "local"}:
+            return self._complete_ollama(messages, tools)
 
         return self._complete_openai_compatible(messages, tools)
