@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  title     String    @default("Nouvelle conversation")
+  model     String?
+  engine    String    @default("auto") // auto | hf | demo
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  role           String // user | assistant | tool
+  content        String
+  toolName       String?
+  toolArgs       String? // JSON string
+  toolResult     String? // JSON string
+  step           Int          @default(0)
+  durationMs     Int?
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model Settings {
+  id             String  @id @default("singleton") // singleton row
+  hfToken        String?
+  model          String  @default("glm-4.6")
+  customModel    String?
+  engine         String  @default("auto") // auto | hf | demo
+  temperature    Float   @default(0.7)
+  maxSteps       Int     @default(6)
+  systemPrompt   String?
+  // Voix J.A.R.V.I.S.
+  voiceEnabled   Boolean @default(false)
+  voiceName      String  @default("xiaochen")
+  voiceSpeed     Float   @default(1.0)
+  voiceEngine    String  @default("browser") // stark (serveur) | browser (voix natives)
+  browserVoiceUri String? // URI de la voix navigateur choisie (null = auto)
+}

@@ -1,0 +1,122 @@
+<div align="center">
+
+# ⚡ J.A.R.V.I.S.
+
+**Just A Rather Very Intelligent System**
+
+Assistant IA vocal façon Iron Man — propulsé par les modèles **GLM de Z.ai** et **Hugging Face**.
+
+</div>
+
+---
+
+## 🎯 Description
+
+J.A.R.V.I.S. est un agent conversationnel **vocal** avec une interface holographique HUD inspirée de l'univers Iron Man. Il **écoute**, **réfléchit**, **agit sur la machine** et **répond à voix haute**, avec une animation neuronale plein écran qui réagit à votre voix et à la sienne.
+
+- 🧠 **Moteur GLM 4.6 intégré** (Z.ai) — fonctionne **sans aucun token**, dès l'installation
+- 🤗 **Hugging Face en option** — Llama 3.3, Qwen 2.5/3, Mistral, GLM 4.5/5.3 via Inference Providers (token HF)
+- 🎙️ **Agent vocal complet** — reconnaissance vocale (STT) + synthèse vocale (TTS) en streaming par phrases
+- 🇫🇷 **Voix françaises** — voix natives du navigateur (instantanées, hors ligne) ou voix serveur classées d'après un test réel de diction française
+- 🛠️ **7 outils embarqués** — recherche web, lecture de page, calculatrice, exécution JavaScript, date/heure, diagnostic système, effets HUD
+- 🌐 **Lien neural plein écran** — réseau de neurones animé (canvas 2D, projection 3D) qui vibre à l'écoute et pulse pendant l'élocution
+- 📱 **PWA** — installable, thème HUD ambré, responsive mobile/desktop
+
+## 🖼️ Interface
+
+- **Réacteur Arc** animé (canvas) avec états : veille / écoute / réflexion / élocution
+- **Boot sequence** cinéma au lancement — « NOYAU : GLM 4.6 — MOTEUR STARK INTÉGRÉ »
+- **HUD corners, radar sweep, telemetry panel**, scanlines et grille holographique
+- **Lien neural** : canal vocal plein écran avec typewriter synchro voix
+
+## 🛠️ Stack technique
+
+| Couche | Technologie |
+|---|---|
+| Framework | **Next.js 16** (App Router) + TypeScript |
+| Runtime / packages | **Bun** |
+| UI | **Tailwind CSS 4** + shadcn/ui (style New York) + Lucide |
+| Base de données | **Prisma ORM** + SQLite |
+| LLM | GLM 4.6 / 4.5-Air / 4.5-Flash (Z.ai) · Hugging Face Inference Providers |
+| Voix | STT serveur (whisper) · TTS serveur 7 voix · Web Speech API navigateur |
+
+## 🚀 Démarrage rapide
+
+```bash
+# 1. Installer les dépendances
+bun install
+
+# 2. Configurer l'environnement
+cp .env.example .env
+
+# 3. Créer la base de données
+bun run db:push
+
+# 4. Lancer J.A.R.V.I.S.
+bun run dev
+```
+
+Ouvrez <http://localhost:3000> — c'est tout. **Aucun token requis** : le moteur GLM intégré fonctionne immédiatement.
+
+> 💡 **Pour la voix** : le navigateur exige une page **HTTPS** ou `localhost` pour le micro. Si l'app est intégrée dans un aperçu (iframe), ouvrez-la dans un onglet dédié — J.A.R.V.I.S. vous le proposera automatiquement.
+
+## 🧰 Outils de l'agent
+
+| Outil | Description |
+|---|---|
+| `web_search` | Recherche web en temps réel |
+| `read_page` | Lit et résume n'importe quelle page web |
+| `calculator` | Calculs de précision |
+| `run_js` | Exécute du JavaScript côté serveur (sandbox) |
+| `get_datetime` | Date et heure du système |
+| `system_status` | Diagnostic complet de la machine (CPU, RAM, réseau…) |
+| `hud_action` | Déclenche des effets HUD en direct (balayage radar, alertes…) |
+
+L'agent choisit ses outils **autonomement** selon votre demande — les résultats s'affichent dans des cartes dédiées, avec statut et durée.
+
+## ⚙️ Configuration
+
+Tout se règle dans l'interface (**⚙ Réglages**) :
+
+- **Modèle** : GLM 4.6 / 4.5-Air / 4.5-Flash (sans token) ou modèles Hugging Face (token requis)
+- **Voix** : moteur navigateur (voix françaises natives) ou moteur serveur (tongtong ★, xiaochen ★ recommandées en français)
+- **Température, étapes max, prompt système**
+
+## 📁 Structure du projet
+
+```
+src/
+├── app/
+│   ├── api/
+│   │   ├── chat/          # Route SSE de l'agent (streaming + outils)
+│   │   ├── voice/asr/     # Reconnaissance vocale
+│   │   ├── voice/tts/     # Synthèse vocale (découpage par phrases)
+│   │   ├── conversations/ # CRUD des conversations
+│   │   ├── settings/      # Réglages + test de connexion
+│   │   └── system-status/ # Diagnostic machine
+│   ├── layout.tsx / page.tsx
+│   └── manifest.ts        # PWA
+├── components/
+│   ├── chat/              # Composer, messages, réglages, sidebar…
+│   └── jarvis/            # Réacteur Arc, lien neural, HUD, boot…
+├── hooks/
+│   ├── use-jarvis-voice.tsx  # Agent vocal (micro, STT, file TTS streaming)
+│   └── use-hugging-agent.ts  # Orchestration SSE de l'agent
+└── lib/
+    ├── agent/             # Moteurs (Z.ai / HF), parsing d'outils, prompt
+    ├── server/            # Settings serveur
+    └── types.ts           # Modèles, voix, outils
+prisma/schema.prisma       # Conversations, messages, réglages
+```
+
+## 📜 Licence
+
+Projet personnel — usage libre.
+
+---
+
+<div align="center">
+
+*« À votre service, Monsieur. »* — J.A.R.V.I.S.
+
+</div>

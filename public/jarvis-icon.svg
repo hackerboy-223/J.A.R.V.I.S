@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- J.A.R.V.I.S. — réacteur arc -->
+  <defs>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#eafcff"/>
+      <stop offset="45%" stop-color="#7ee9ff"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#060d1a"/>
+  <!-- anneau extérieur -->
+  <circle cx="32" cy="32" r="27" fill="none" stroke="#155e75" stroke-width="2"/>
+  <!-- anneau segmenté (style Mark II) -->
+  <circle cx="32" cy="32" r="21.5" fill="none" stroke="#22d3ee" stroke-width="5.5"
+    stroke-dasharray="9.42 4.11" stroke-linecap="butt"/>
+  <!-- triangle du réacteur -->
+  <polygon points="32,17.5 44.7,39.5 19.3,39.5" fill="none" stroke="#67e8f9" stroke-width="3" stroke-linejoin="round"/>
+  <!-- coeur lumineux -->
+  <circle cx="32" cy="32" r="8.5" fill="url(#core)"/>
+  <circle cx="32" cy="32" r="12.5" fill="none" stroke="#a5f3fc" stroke-width="1.4" opacity="0.85"/>
+</svg>
