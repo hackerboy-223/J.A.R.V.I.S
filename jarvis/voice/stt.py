@@ -1,24 +1,30 @@
 from __future__ import annotations
 
+import gc
+import io
+import os
 import queue
 import threading
 import time
+import wave
 from collections import deque
 from collections.abc import Callable
+
+# Keep CTranslate2/MKL conservative on memory before importing native backends.
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
+os.environ.setdefault("CT2_PACKED_GEMM", "0")
 
 import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
+from huggingface_hub import InferenceClient
 
 from jarvis.config import settings
 
 
 class HandsFreeListener:
-    """Hands-free microphone capture with adaptive VAD and background Whisper.
-
-    Audio capture never waits for Whisper. Interim transcription jobs are lossy
-    by design: when Whisper is busy, only the newest partial matters.
-    """
+    """Hands-free capture with remote HF ASR and low-memory local fallback."""
 
     def __init__(
         self,
@@ -44,11 +50,18 @@ class HandsFreeListener:
         self._transcribe_thread: threading.Thread | None = None
         self._warm_thread: threading.Thread | None = None
         self._stream: sd.InputStream | None = None
+
         self._model: WhisperModel | None = None
         self._model_lock = threading.Lock()
+        self._local_model_name = settings.whisper_model or "tiny"
+
+        self._hf_client: InferenceClient | None = None
+        self._hf_failed = False
+
         self._input_rate = target_rate
         self._utterance_id = 0
         self._last_partial_text = ""
+        self._last_error = ""
 
     @staticmethod
     def input_devices() -> list[dict[str, object]]:
@@ -82,7 +95,8 @@ class HandsFreeListener:
 
             lowered = requested.lower()
             for idx, dev in enumerate(devices):
-                if int(dev.get("max_input_channels", 0)) > 0 and lowered in str(dev.get("name", "")).lower():
+                name = str(dev.get("name", ""))
+                if int(dev.get("max_input_channels", 0)) > 0 and lowered in name.lower():
                     return idx, dev
             raise RuntimeError(f"Micro configuré introuvable : {requested}")
 
@@ -93,28 +107,54 @@ class HandsFreeListener:
         idx = int(default_input)
         return idx, devices[idx]
 
+    def _prefer_huggingface(self) -> bool:
+        provider = settings.stt_provider
+        if provider in {"huggingface", "hf"}:
+            return bool(settings.hf_token) and not self._hf_failed
+        if provider == "auto":
+            return bool(settings.hf_token) and not self._hf_failed
+        return False
+
+    def _ensure_hf_client(self) -> InferenceClient:
+        if not settings.hf_token:
+            raise RuntimeError("HF_TOKEN n'est pas configuré.")
+        if self._hf_client is None:
+            self._hf_client = InferenceClient(api_key=settings.hf_token)
+        return self._hf_client
+
     def _ensure_model(self) -> WhisperModel:
         if self._model is not None:
             return self._model
 
         with self._model_lock:
             if self._model is None:
-                self.on_status(f"WHISPER · CHARGEMENT {settings.whisper_model.upper()}…")
+                self.on_status(f"WHISPER · CHARGEMENT {self._local_model_name.upper()} LOW-MEM…")
                 self._model = WhisperModel(
-                    settings.whisper_model,
+                    self._local_model_name,
                     device="cpu",
                     compute_type=settings.whisper_compute_type,
+                    cpu_threads=settings.whisper_cpu_threads,
+                    num_workers=1,
                 )
-                self.on_status("WHISPER · PRÊT")
+                self.on_status(f"WHISPER · {self._local_model_name.upper()} PRÊT")
         return self._model
+
+    def _release_local_model(self) -> None:
+        with self._model_lock:
+            self._model = None
+        gc.collect()
 
     def _warm_model(self) -> None:
         try:
+            if self._prefer_huggingface():
+                self.on_status("LISTENING · HF ASR PRÊT")
+                return
+
             self._ensure_model()
             if self._active.is_set():
-                self.on_status("LISTENING · WHISPER PRÊT")
+                self.on_status(f"LISTENING · WHISPER {self._local_model_name.upper()} PRÊT")
         except Exception as exc:
-            self.on_error(f"Impossible de charger Whisper : {exc}")
+            self._emit_error_once(f"Impossible de charger le moteur vocal : {exc}")
 
     def start(self) -> None:
         if self._active.is_set():
@@ -125,7 +165,10 @@ class HandsFreeListener:
 
         try:
             device_index, device = self._selected_device()
-            self._input_rate = max(8000, int(float(device.get("default_samplerate", self.target_rate))))
+            self._input_rate = max(
+                8000,
+                int(float(device.get("default_samplerate", self.target_rate))),
+            )
             device_name = str(device.get("name", f"Micro {device_index}"))
 
             sd.check_input_settings(
@@ -137,11 +180,12 @@ class HandsFreeListener:
 
             self._drain_audio_queue()
             self._active.set()
+            self._last_error = ""
 
             if self._transcribe_thread is None or not self._transcribe_thread.is_alive():
                 self._transcribe_thread = threading.Thread(
                     target=self._transcribe_loop,
-                    name="jarvis-whisper",
+                    name="jarvis-stt",
                     daemon=True,
                 )
                 self._transcribe_thread.start()
@@ -149,7 +193,7 @@ class HandsFreeListener:
             if self._warm_thread is None or not self._warm_thread.is_alive():
                 self._warm_thread = threading.Thread(
                     target=self._warm_model,
-                    name="jarvis-whisper-warmup",
+                    name="jarvis-stt-warmup",
                     daemon=True,
                 )
                 self._warm_thread.start()
@@ -173,7 +217,8 @@ class HandsFreeListener:
             )
             self._capture_thread.start()
 
-            self.on_status(f"LISTENING · {device_name}")
+            backend = "HF ASR" if self._prefer_huggingface() else f"WHISPER {self._local_model_name.upper()}"
+            self.on_status(f"LISTENING · {device_name} · {backend}")
         except Exception:
             self._active.clear()
             self._close_stream()
@@ -197,6 +242,7 @@ class HandsFreeListener:
     def shutdown(self) -> None:
         self.stop()
         self._shutdown.set()
+        self._release_local_model()
         try:
             self._transcribe_q.put_nowait(None)
         except queue.Full:
@@ -229,10 +275,10 @@ class HandsFreeListener:
             self.on_status(f"MIC · {status}")
         if not self._active.is_set():
             return
+
         try:
             self._audio_q.put_nowait(indata[:, 0].copy())
         except queue.Full:
-            # Drop oldest chunk rather than blocking the PortAudio callback.
             try:
                 self._audio_q.get_nowait()
             except queue.Empty:
@@ -287,27 +333,43 @@ class HandsFreeListener:
                 duration = sum(len(c) for c in chunks) / self._input_rate
                 silence = now - last_voice
 
-                if duration >= 1.15 and now - last_partial_at >= 1.15:
+                if (
+                    settings.whisper_partial_transcripts
+                    and duration >= 2.2
+                    and now - last_partial_at >= 2.2
+                ):
                     last_partial_at = now
-                    self._queue_transcription(chunks, final=False, utterance_id=utterance_id)
+                    self._queue_transcription(
+                        chunks,
+                        final=False,
+                        utterance_id=utterance_id,
+                    )
 
                 if silence >= 0.90 and duration >= 0.40:
                     self.on_status("TRANSCRIBING · PHRASE REÇUE")
-                    self._queue_transcription(chunks, final=True, utterance_id=utterance_id)
+                    self._queue_transcription(
+                        chunks,
+                        final=True,
+                        utterance_id=utterance_id,
+                    )
                     self._active.clear()
                     self._close_stream()
                     self.on_level(0.0)
                     return
 
-                if duration >= 18.0:
+                if duration >= 15.0:
                     self.on_status("TRANSCRIBING · SEGMENT LONG")
-                    self._queue_transcription(chunks, final=True, utterance_id=utterance_id)
+                    self._queue_transcription(
+                        chunks,
+                        final=True,
+                        utterance_id=utterance_id,
+                    )
                     self._active.clear()
                     self._close_stream()
                     self.on_level(0.0)
                     return
         except Exception as exc:
-            self.on_error(f"Erreur capture microphone : {exc}")
+            self._emit_error_once(f"Erreur capture microphone : {exc}")
             self._active.clear()
             self._close_stream()
 
@@ -320,11 +382,11 @@ class HandsFreeListener:
     ) -> None:
         if not chunks:
             return
+
         audio = np.concatenate(chunks).astype(np.float32, copy=True)
         job = (audio, self._input_rate, final, utterance_id)
 
         if final:
-            # Final results must win over stale interim jobs.
             while True:
                 try:
                     self._transcribe_q.get_nowait()
@@ -347,14 +409,108 @@ class HandsFreeListener:
 
     def _resample(self, audio: np.ndarray, source_rate: int) -> np.ndarray:
         if source_rate == self.target_rate:
-            return audio
+            return audio.astype(np.float32, copy=False)
         if audio.size <= 1:
-            return audio
+            return audio.astype(np.float32, copy=False)
 
-        output_size = max(1, int(round(audio.size * self.target_rate / source_rate)))
+        output_size = max(
+            1,
+            int(round(audio.size * self.target_rate / source_rate)),
+        )
         old_x = np.linspace(0.0, 1.0, num=audio.size, endpoint=False)
         new_x = np.linspace(0.0, 1.0, num=output_size, endpoint=False)
         return np.interp(new_x, old_x, audio).astype(np.float32)
+
+    def _wav_bytes(self, audio16: np.ndarray) -> bytes:
+        pcm = (
+            np.clip(audio16, -1.0, 1.0) * 32767.0
+        ).astype(np.int16, copy=False)
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(self.target_rate)
+            wav.writeframes(pcm.tobytes())
+        return buffer.getvalue()
+
+    def _transcribe_huggingface(self, audio16: np.ndarray) -> str:
+        client = self._ensure_hf_client()
+        model = settings.hf_asr_model or None
+        output = client.automatic_speech_recognition(
+            self._wav_bytes(audio16),
+            model=model,
+        )
+
+        if isinstance(output, str):
+            return output.strip()
+        if isinstance(output, dict):
+            return str(output.get("text", "")).strip()
+        return str(getattr(output, "text", "") or "").strip()
+
+    @staticmethod
+    def _is_memory_error(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return any(
+            token in message
+            for token in (
+                "mkl_malloc",
+                "failed to allocate memory",
+                "cannot allocate memory",
+                "out of memory",
+                "bad allocation",
+                "std::bad_alloc",
+            )
+        )
+
+    def _transcribe_local(self, audio16: np.ndarray) -> str:
+        def run_once() -> str:
+            model = self._ensure_model()
+            segments, _ = model.transcribe(
+                audio16,
+                language=settings.language,
+                beam_size=1,
+                vad_filter=True,
+                condition_on_previous_text=False,
+                without_timestamps=True,
+            )
+            return " ".join(
+                segment.text.strip() for segment in segments
+            ).strip()
+
+        try:
+            return run_once()
+        except Exception as exc:
+            if not self._is_memory_error(exc) or self._local_model_name == "tiny":
+                raise
+
+            self.on_status("WHISPER · MÉMOIRE FAIBLE → FALLBACK TINY")
+            self._release_local_model()
+            self._local_model_name = "tiny"
+            gc.collect()
+            return run_once()
+
+    def _transcribe_audio(self, audio16: np.ndarray) -> str:
+        if self._prefer_huggingface():
+            try:
+                self.on_status("TRANSCRIBING · HUGGING FACE ASR")
+                return self._transcribe_huggingface(audio16)
+            except Exception as exc:
+                self._hf_failed = True
+                self.on_status(
+                    f"HF ASR INDISPONIBLE · FALLBACK LOCAL ({type(exc).__name__})"
+                )
+
+        self.on_status(
+            f"TRANSCRIBING · WHISPER {self._local_model_name.upper()} LOW-MEM"
+        )
+        return self._transcribe_local(audio16)
+
+    def _emit_error_once(self, message: str) -> None:
+        if message == self._last_error:
+            return
+        self._last_error = message
+        self.on_error(message)
 
     def _transcribe_loop(self) -> None:
         while not self._shutdown.is_set():
@@ -367,27 +523,38 @@ class HandsFreeListener:
                 return
 
             audio, source_rate, final, utterance_id = job
+
             try:
-                model = self._ensure_model()
                 audio16 = self._resample(audio, source_rate)
-                segments, _ = model.transcribe(
-                    audio16,
-                    language=settings.language,
-                    beam_size=1,
-                    vad_filter=True,
-                    condition_on_previous_text=False,
-                )
-                text = " ".join(segment.text.strip() for segment in segments).strip()
+                text = self._transcribe_audio(audio16)
+
                 if not text:
-                    if final and self._active.is_set():
+                    if final:
                         self.on_status("LISTENING · AUCUNE PAROLE RECONNUE")
                     continue
 
                 if final:
                     self._last_partial_text = ""
+                    self._last_error = ""
                     self.on_final(text)
-                elif utterance_id == self._utterance_id and text != self._last_partial_text:
+                elif (
+                    utterance_id == self._utterance_id
+                    and text != self._last_partial_text
+                ):
                     self._last_partial_text = text
                     self.on_partial(text)
+
             except Exception as exc:
-                self.on_error(f"Erreur transcription Whisper : {exc}")
+                if self._is_memory_error(exc):
+                    self._active.clear()
+                    self._close_stream()
+                    self._release_local_model()
+                    self._emit_error_once(
+                        "Mémoire insuffisante pour le STT local. "
+                        "Configure HF_TOKEN pour utiliser Hugging Face ASR, "
+                        "ou garde JARVIS_WHISPER_MODEL=tiny."
+                    )
+                else:
+                    self._emit_error_once(
+                        f"Erreur transcription vocale : {exc}"
+                    )
