@@ -14,7 +14,7 @@ Assistant IA vocal façon Iron Man — propulsé par les modèles **GLM de Z.ai*
 
 J.A.R.V.I.S. est un agent conversationnel **vocal** avec une interface holographique HUD inspirée de l'univers Iron Man. Il **écoute**, **réfléchit**, **agit sur la machine** et **répond à voix haute**, avec une animation neuronale plein écran qui réagit à votre voix et à la sienne.
 
-- 🧠 **Moteur GLM 4.6 intégré** (Z.ai) — fonctionne **sans aucun token**, dès l'installation
+- 🧠 **Moteur GLM via Z.ai** — disponible quand l’environnement Z.ai est correctement configuré
 - 🤗 **Hugging Face en option** — Llama 3.3, Qwen 2.5/3, Mistral, GLM 4.5/5.3 via Inference Providers (token HF)
 - 🎙️ **Agent vocal complet** — reconnaissance vocale (STT) + synthèse vocale (TTS) en streaming par phrases
 - 🇫🇷 **Voix françaises** — voix natives du navigateur (instantanées, hors ligne) ou voix serveur classées d'après un test réel de diction française
@@ -56,9 +56,31 @@ bun run db:push
 bun run dev
 ```
 
-Ouvrez <http://localhost:3000> — c'est tout. **Aucun token requis** : le moteur GLM intégré fonctionne immédiatement.
+Ouvrez <http://localhost:3000>. En développement local, l’authentification peut rester désactivée si aucune variable de sécurité n’est définie. Le moteur Z.ai dépend de la configuration disponible dans votre environnement.
 
 > 💡 **Pour la voix** : le navigateur exige une page **HTTPS** ou `localhost` pour le micro. Si l'app est intégrée dans un aperçu (iframe), ouvrez-la dans un onglet dédié — J.A.R.V.I.S. vous le proposera automatiquement.
+
+## 🔐 Sécurité et production
+
+En production, J.A.R.V.I.S. se verrouille automatiquement. Définissez au minimum :
+
+```env
+JARVIS_ACCESS_PASSWORD="un-mot-de-passe-fort"
+JARVIS_SESSION_SECRET="une-longue-valeur-aleatoire-d-au-moins-24-caracteres"
+JARVIS_ENCRYPTION_KEY="une-autre-longue-valeur-aleatoire"
+JARVIS_ALLOW_RUN_JS="false"
+```
+
+- Les sessions utilisent un cookie **HttpOnly**, `SameSite=Strict` et signé côté serveur.
+- Le token Hugging Face est chiffré en **AES-256-GCM** quand `JARVIS_ENCRYPTION_KEY` est défini.
+- Les routes chat, conversations, réglages, voix et télémétrie nécessitent une session valide.
+- Les endpoints coûteux sont limités en fréquence.
+- `run_js` est **désactivé par défaut en production**. Ne l’activez que dans un environnement réellement isolé.
+- Le health-check public `/api` ne révèle plus le nom d’hôte, le CPU, la RAM ou la version du système.
+
+> **Important — dépendances :** avant tout déploiement public, utilisez une version Next.js corrigée par les dernières publications de sécurité et régénérez `bun.lock` avec Bun. Le lockfile ne doit jamais être modifié à la main.
+
+Voir également [SECURITY.md](./SECURITY.md).
 
 ## 🧰 Outils de l'agent
 
