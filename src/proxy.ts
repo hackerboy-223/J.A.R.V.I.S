@@ -20,8 +20,8 @@ export function proxy(req: NextRequest) {
   if (!authRequired) return NextResponse.next();
 
   const configured =
-    Boolean(process.env.JARVIS_ACCESS_PASSWORD?.trim()) &&
-    (process.env.JARVIS_SESSION_SECRET?.trim().length ?? 0) >= 24;
+    (process.env.JARVIS_ACCESS_PASSWORD?.trim().length ?? 0) >= 12 &&
+    (process.env.JARVIS_SESSION_SECRET?.trim().length ?? 0) >= 32;
 
   if (!configured) {
     if (pathname.startsWith("/api/")) {
