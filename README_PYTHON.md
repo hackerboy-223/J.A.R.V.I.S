@@ -199,3 +199,28 @@ SERPER_API_KEY="..."
 ```
 
 The page reader validates redirect targets to prevent redirects into localhost/private network ranges.
+
+
+## Voice memory fallback
+
+The speech pipeline is hybrid:
+
+1. If `JARVIS_STT_PROVIDER=auto` and `HF_TOKEN` is configured, J.A.R.V.I.S. sends each completed utterance to Hugging Face ASR.
+2. If Hugging Face ASR is unavailable, it falls back to local faster-whisper.
+3. Local faster-whisper runs with `int8`, one worker and a small CPU thread count.
+4. If the configured local model cannot allocate enough memory, J.A.R.V.I.S. releases it and retries with `tiny`.
+5. Fatal STT memory errors stop hands-free mode instead of endlessly repeating the same diagnostic.
+
+Recommended low-memory configuration:
+
+```env
+JARVIS_STT_PROVIDER="auto"
+JARVIS_HF_ASR_MODEL=""
+JARVIS_WHISPER_MODEL="tiny"
+JARVIS_WHISPER_COMPUTE="int8"
+JARVIS_WHISPER_CPU_THREADS="2"
+JARVIS_WHISPER_PARTIAL_TRANSCRIPTS="false"
+```
+
+Local interim Whisper transcription is disabled by default because repeated inference increases memory
+pressure. The neural HUD still reacts continuously to the live microphone level.
