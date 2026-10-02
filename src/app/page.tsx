@@ -144,28 +144,29 @@ export default function Page() {
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [modelSelectOpen, setModelSelectOpen] = React.useState(false);
-  const [booting, setBooting] = React.useState(true);
+  const [booting, setBooting] = React.useState(false);
 
-  // PERF : la séquence de boot (≈ 3,8 s) ne joue qu'une fois par session —
-  // les rechargements suivants ouvrent l'interface instantanément.
   React.useEffect(() => {
+    let shouldBoot = true;
+
     try {
-      if (sessionStorage.getItem(BOOT_KEY) === "1") {
-        setBooting(false);
-        return;
+      shouldBoot = sessionStorage.getItem(BOOT_KEY) !== "1";
+      if (shouldBoot) {
+        sessionStorage.setItem(BOOT_KEY, "1");
       }
-      sessionStorage.setItem(BOOT_KEY, "1");
     } catch {
-      /* stockage indisponible : boot normal */
+      // Le stockage de session peut être indisponible dans certains contextes.
     }
-  }, []);
 
-  // Garde-fou : l'interface ne doit jamais rester prisonnière de l'écran de boot.
-  React.useEffect(() => {
-    if (!booting) return;
+    if (!shouldBoot) return;
+
+    setBooting(true);
     const watchdog = window.setTimeout(() => setBooting(false), 6000);
-    return () => window.clearTimeout(watchdog);
-  }, [booting]);
+
+    return () => {
+      window.clearTimeout(watchdog);
+    };
+  }, []);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const atBottomRef = React.useRef(true);
   const [showScrollDown, setShowScrollDown] = React.useState(false);
