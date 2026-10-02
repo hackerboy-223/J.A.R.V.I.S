@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from jarvis.config import settings
 from jarvis.core.llm import LLMClient
+from jarvis.core.local_commands import LocalCommandRouter
 from jarvis.core.memory import MemoryStore
 from jarvis.core.tools import Tool, ToolRegistry
 from jarvis.knowledge import KnowledgeBase
@@ -43,6 +44,7 @@ class JarvisAgent:
         self.memory = MemoryStore(settings.database_path)
         self.knowledge = KnowledgeBase(settings.database_path)
         self.llm = LLMClient()
+        self.local_router = LocalCommandRouter()
         self.workflows = WorkflowEngine(self.llm)
         self.confirm = confirm or (lambda _: False)
         self.tools = ToolRegistry()
@@ -208,7 +210,48 @@ class JarvisAgent:
             messages.append({"role": "user", "content": user_text})
         return messages
 
+    def _run_local_fallback(self, clean: str, progress: ProgressFn) -> str | None:
+        routed = self.local_router.parse(clean)
+        if routed is None:
+            return None
+
+        name, args = routed
+        if name == "local_reply":
+            return str(args.get("text", "")).strip()
+
+        try:
+            tool = self.tools.get(name)
+        except ValueError:
+            return None
+
+        progress(f"LOCAL · {name.upper()}")
+        if tool.requires_confirmation:
+            summary = f"Autoriser J.A.R.V.I.S. à exécuter {name} avec {args} ?"
+            if not self.confirm(summary):
+                return "Action locale annulée."
+
+        try:
+            result = self.tools.execute(name, args)
+        except Exception as exc:
+            return f"Action locale impossible : {exc}"
+
+        self.memory.log_action(name, args, {"ok": True, "data": result})
+
+        if name == "system_status":
+            return (
+                f"CPU {result.get('cpu_percent', '?')} %, "
+                f"RAM {result.get('memory_used_percent', '?')} %, "
+                f"système {result.get('platform', 'inconnu')}."
+            )
+        if name == "pc_control":
+            return "Action exécutée, H@CKERBOY."
+        return json.dumps(result, ensure_ascii=False)
+
     def _run_standard(self, clean: str, progress: ProgressFn) -> str:
+        local = self._run_local_fallback(clean, progress)
+        if local is not None:
+            return local
+
         messages = self._messages(clean)
 
         for step in range(1, 7):
