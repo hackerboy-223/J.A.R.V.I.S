@@ -17,7 +17,7 @@ dependencies = [
   "sounddevice>=0.5",
   "numpy>=2.0",
   "faster-whisper>=1.1",
-  "vosk>=0.3.75",
+  "platypush-vosk>=0.3.45.post2",
 ]
 
 [project.scripts]
