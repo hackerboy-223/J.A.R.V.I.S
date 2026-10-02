@@ -18,7 +18,7 @@ export function isAuthRequired(): boolean {
 }
 
 export function isAuthConfigured(): boolean {
-  return accessPassword().length > 0 && sessionSecret().length >= 24;
+  return accessPassword().length >= 12 && sessionSecret().length >= 32;
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -41,7 +41,7 @@ export function verifyPassword(candidate: string): boolean {
 export function createSessionToken(): string {
   if (!isAuthConfigured()) {
     throw new Error(
-      "Authentification non configurée : définis JARVIS_ACCESS_PASSWORD et JARVIS_SESSION_SECRET."
+      "Authentification non configurée : utilise un mot de passe d'au moins 12 caractères et un JARVIS_SESSION_SECRET d'au moins 32 caractères."
     );
   }
   const expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
