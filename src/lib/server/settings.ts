@@ -18,6 +18,17 @@ export async function getSettingsRow() {
     row = await db.settings.create({ data: { id: SINGLETON } });
   }
   if (
+    process.env.NODE_ENV === "production" &&
+    row.hfToken &&
+    !row.hfToken.startsWith("enc:v1:") &&
+    !process.env.JARVIS_ENCRYPTION_KEY?.trim()
+  ) {
+    throw new Error(
+      "JARVIS_ENCRYPTION_KEY est requis en production pour sécuriser le token Hugging Face existant."
+    );
+  }
+
+  if (
     row.hfToken &&
     !row.hfToken.startsWith("enc:v1:") &&
     process.env.JARVIS_ENCRYPTION_KEY?.trim()
