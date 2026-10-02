@@ -65,8 +65,8 @@ export default function LoginPage() {
           <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm">
             <p className="font-semibold">Configuration serveur requise</p>
             <p className="mt-2 text-muted-foreground">
-              Définis <code>JARVIS_ACCESS_PASSWORD</code> et un
-              <code className="ml-1">JARVIS_SESSION_SECRET</code> d'au moins 24 caractères,
+              Définis un <code>JARVIS_ACCESS_PASSWORD</code> d'au moins 12 caractères et un
+              <code className="ml-1">JARVIS_SESSION_SECRET</code> d'au moins 32 caractères,
               puis redémarre l'application.
             </p>
           </div>
