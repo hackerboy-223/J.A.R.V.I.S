@@ -187,11 +187,11 @@ class Speaker:
     def _avoid_wake_word(text: str) -> str:
         # Prevent J.A.R.V.I.S. from waking itself through speaker echo.
         text = re.sub(
-            r"(?i)\\bJ\\.?A\\.?R\\.?V\\.?I\\.?S\\.?\\b[:,]?",
+            r"(?i)\bJ\.?A\.?R\.?V\.?I\.?S\.?\b[:,]?",
             "",
             text,
         )
-        text = re.sub(r"(?i)\\bjarvis\\b[:,]?", "", text)
+        text = re.sub(r"(?i)\bjarvis\b[:,]?", "", text)
         return re.sub(r"[ \\t]{2,}", " ", text).strip()
 
     def speak(self, text: str, *, avoid_wake_word: bool = True) -> None:
