@@ -100,7 +100,7 @@ class MainWindow(QMainWindow):
 
         self.neural = NeuralCoreWidget()
         self.neural.set_state("idle")
-        layout.addWidget(self.neural)
+        layout.addWidget(self.neural, 3)
 
         self.chat = QTextEdit()
         self.chat.setReadOnly(True)
