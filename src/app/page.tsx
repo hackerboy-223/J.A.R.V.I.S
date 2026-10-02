@@ -417,8 +417,8 @@ export default function Page() {
       : voice.micState === "transcribing"
         ? "ANALYSE DE LA VOIX…"
         : agent.streaming
-          ? "TRAITEMENT DES DONNÉES…"
-          : "SYSTÈMES NOMINAUX";
+          ? "ANALYSE MULTI-SYSTÈME EN COURS…"
+          : "SYSTÈMES NOMINAUX — EN ATTENTE D’INSTRUCTIONS";
 
   const messages = agent.messages;
   const lastMessage = messages[messages.length - 1];
@@ -511,7 +511,7 @@ export default function Page() {
             <ArcReactor size={26} state={reactorState} />
             <div className="leading-tight">
               <p className="glow-text text-sm font-bold tracking-[0.18em] text-primary">J.A.R.V.I.S.</p>
-              <p className="hud-label">AGENT VOCAL STARK</p>
+              <p className="hud-label">ASSISTANT EMBARQUÉ</p>
             </div>
           </div>
           {sidebar}
@@ -538,7 +538,7 @@ export default function Page() {
                   <ArcReactor size={26} state={reactorState} />
                   <div className="leading-tight">
                     <p className="glow-text text-sm font-bold tracking-[0.18em] text-primary">J.A.R.V.I.S.</p>
-                    <p className="hud-label">AGENT VOCAL STARK</p>
+                    <p className="hud-label">ASSISTANT EMBARQUÉ</p>
                   </div>
                 </div>
                 {sidebar}
@@ -784,7 +784,7 @@ export default function Page() {
         {/* ---- Rail télémétrie (desktop large) ---- */}
         <aside className="hidden w-[228px] shrink-0 border-l border-primary/15 bg-sidebar/40 p-3 backdrop-blur xl:block">
           <div className="mb-3 flex items-center justify-between px-1">
-            <span className="hud-label">TÉLÉMÉTRIE STARK</span>
+            <span className="hud-label">SYSTÈMES EMBARQUÉS</span>
             <EngineBadge
               hasToken={!!agent.settings?.hasToken}
               engine={agent.settings?.engine ?? "auto"}
