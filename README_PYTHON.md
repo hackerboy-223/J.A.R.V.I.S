@@ -269,3 +269,29 @@ from vosk import Model, KaldiRecognizer, SetLogLevel
 
 This avoids the nonexistent `vosk>=0.3.75` dependency and provides a Windows x86-64 wheel suitable
 for current Python 3.14 installations.
+
+
+## Hybrid high-accuracy speech transcription
+
+For better French transcription quality while keeping the desktop lightweight:
+
+```env
+JARVIS_STT_PROVIDER="hybrid"
+GROQ_API_KEY=""
+JARVIS_GROQ_STT_MODEL="whisper-large-v3-turbo"
+
+JARVIS_VOSK_MODEL_PATH=""
+JARVIS_LANGUAGE="fr"
+```
+
+Behavior:
+
+1. Vosk stays local for low-latency partial captions and the "Jarvis" interruption keyword.
+2. The completed utterance is buffered as 16 kHz mono PCM.
+3. When `GROQ_API_KEY` is configured, the final phrase is sent as WAV to Groq's
+   OpenAI-compatible `/audio/transcriptions` endpoint.
+4. `whisper-large-v3-turbo` produces the final transcript used by the agent.
+5. If Groq is unavailable or no key is configured, J.A.R.V.I.S. falls back to Vosk.
+
+The Groq request includes `language=fr`, temperature 0 and a small vocabulary prompt for common
+J.A.R.V.I.S. project terms.
