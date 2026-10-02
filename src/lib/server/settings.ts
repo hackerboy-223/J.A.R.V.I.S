@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { revealSecret } from "@/lib/server/secrets";
+import { protectSecret, revealSecret } from "@/lib/server/secrets";
 import {
   DEFAULT_MODEL,
   DEFAULT_VOICE,
@@ -17,6 +17,18 @@ export async function getSettingsRow() {
   if (!row) {
     row = await db.settings.create({ data: { id: SINGLETON } });
   }
+  if (
+    row.hfToken &&
+    !row.hfToken.startsWith("enc:v1:") &&
+    process.env.JARVIS_ENCRYPTION_KEY?.trim()
+  ) {
+    const encrypted = protectSecret(row.hfToken);
+    row = await db.settings.update({
+      where: { id: SINGLETON },
+      data: { hfToken: encrypted },
+    });
+  }
+
   return { ...row, hfToken: revealSecret(row.hfToken) };
 }
 
