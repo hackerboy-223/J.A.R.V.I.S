@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import sys
 import threading
+from pathlib import Path
 
 from PySide6.QtCore import Signal, QObject
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -32,6 +35,7 @@ class Bridge(QObject):
     voice_state = Signal(str)
     voice_error = Signal(str)
     voice_level = Signal(float)
+    agent_progress = Signal(str)
     confirm_request = Signal(object)
 
 
@@ -48,6 +52,7 @@ class MainWindow(QMainWindow):
         self.bridge.voice_state.connect(self._set_voice_state)
         self.bridge.voice_error.connect(self._on_voice_error)
         self.bridge.voice_level.connect(self._on_voice_level)
+        self.bridge.agent_progress.connect(self._on_agent_progress)
         self.bridge.confirm_request.connect(self._handle_confirm_request)
 
         self.speaker = Speaker()
@@ -119,6 +124,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.live_caption)
 
         controls = QHBoxLayout()
+
+        self.mode_select = QComboBox()
+        self.mode_select.addItem("STANDARD", "standard")
+        self.mode_select.addItem("PARALLEL AGENTS", "parallel")
+        self.mode_select.addItem("SEQUENTIAL CHAIN", "sequential")
+        self.mode_select.addItem("AI DEBATE", "debate")
+        self.mode_select.addItem("DEEP RESEARCH", "research")
+        self.mode_select.setMinimumWidth(180)
+        controls.addWidget(self.mode_select)
+
         self.voice_button = QPushButton("MAINS LIBRES : OFF")
         self.voice_button.clicked.connect(self._toggle_voice)
         controls.addWidget(self.voice_button)
@@ -130,6 +145,15 @@ class MainWindow(QMainWindow):
         test_voice_button = QPushButton("TEST VOIX")
         test_voice_button.clicked.connect(self._test_voice)
         controls.addWidget(test_voice_button)
+
+        add_knowledge_button = QPushButton("AJOUTER DOCUMENT")
+        add_knowledge_button.clicked.connect(self._add_knowledge_files)
+        controls.addWidget(add_knowledge_button)
+
+        knowledge_button = QPushButton("KNOWLEDGE")
+        knowledge_button.clicked.connect(self._show_knowledge)
+        controls.addWidget(knowledge_button)
+
         controls.addStretch(1)
         layout.addLayout(controls)
 
