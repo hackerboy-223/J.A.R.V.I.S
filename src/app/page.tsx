@@ -159,6 +159,13 @@ export default function Page() {
       /* stockage indisponible : boot normal */
     }
   }, []);
+
+  // Garde-fou : l'interface ne doit jamais rester prisonnière de l'écran de boot.
+  React.useEffect(() => {
+    if (!booting) return;
+    const watchdog = window.setTimeout(() => setBooting(false), 6000);
+    return () => window.clearTimeout(watchdog);
+  }, [booting]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const atBottomRef = React.useRef(true);
   const [showScrollDown, setShowScrollDown] = React.useState(false);
