@@ -111,6 +111,8 @@ class HandsFreeListener:
     def _warm_model(self) -> None:
         try:
             self._ensure_model()
+            if self._active.is_set():
+                self.on_status("LISTENING · WHISPER PRÊT")
         except Exception as exc:
             self.on_error(f"Impossible de charger Whisper : {exc}")
 
