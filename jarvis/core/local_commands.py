@@ -10,6 +10,11 @@ class LocalCommandRouter:
     def parse(self, text: str) -> tuple[str, dict[str, Any]] | None:
         clean = " ".join(text.lower().strip().split())
 
+        if clean in {"yo", "salut", "bonjour", "hello", "hey", "cc", "jarvis"}:
+            return "local_reply", {
+                "text": "En ligne, H@CKERBOY. Tous les systèmes locaux sont disponibles."
+            }
+
         app_map = {
             "calculatrice": "calculator",
             "calculator": "calculator",
