@@ -256,6 +256,10 @@ export default function Page() {
 
   const runTurn = React.useCallback(
     async (text: string, spoken: boolean) => {
+      if (voiceModeRef.current && handsFree.supported && handsFree.enabled) {
+        handsFree.pause();
+      }
+
       setLastTranscript(text);
       setSpokenText(null);
       const st = settingsRef.current;
@@ -356,7 +360,7 @@ export default function Page() {
       return;
     }
 
-    if (effectiveMicState === "listening") {
+    if (voice.micState === "listening") {
       void voice.stopListening();
     } else if (voice.micState === "idle" && !agent.streaming) {
       openNeural();
@@ -412,7 +416,7 @@ export default function Page() {
       return;
     }
 
-    if (effectiveMicState === "listening") {
+    if (voice.micState === "listening") {
       void voice.stopListening();
     } else if (voice.micState === "idle" && !agent.streaming) {
       void voice.startListening();
@@ -467,30 +471,30 @@ export default function Page() {
     ? "speaking"
     : effectiveMicState === "listening"
       ? "listening"
-      : effectiveMicState === "transcribing"
-        ? "transcribing"
-        : agent.streaming
-          ? "thinking"
+      : agent.streaming
+        ? "thinking"
+        : effectiveMicState === "transcribing"
+          ? "transcribing"
           : "idle";
 
   const statusShort = voice.speaking
     ? "ÉLOCUTION"
     : effectiveMicState === "listening"
       ? "ÉCOUTE"
-      : effectiveMicState === "transcribing"
-        ? "TRANSCRIPTION"
-        : agent.streaming
-          ? "TRAITEMENT"
+      : agent.streaming
+        ? "TRAITEMENT"
+        : effectiveMicState === "transcribing"
+          ? "TRANSCRIPTION"
           : "EN LIGNE";
 
   const statusLong = voice.speaking
     ? "À VOTRE SERVICE, MONSIEUR"
     : effectiveMicState === "listening"
-      ? "JE VOUS ÉCOUTE, MONSIEUR"
-      : effectiveMicState === "transcribing"
-        ? "ANALYSE DE LA VOIX…"
-        : agent.streaming
-          ? "ANALYSE MULTI-SYSTÈME EN COURS…"
+      ? "TRANSCRIPTION TEMPS RÉEL — JE VOUS ÉCOUTE"
+      : agent.streaming
+        ? "ANALYSE MULTI-SYSTÈME EN COURS…"
+        : effectiveMicState === "transcribing"
+          ? "PHRASE REÇUE — INTERPRÉTATION…"
           : "SYSTÈMES NOMINAUX — EN ATTENTE D’INSTRUCTIONS";
 
   const messages = agent.messages;
@@ -874,7 +878,7 @@ export default function Page() {
         <NeuralLink
           open={neuralOpen}
           phase={neuralPhase}
-          micState={voice.micState}
+          micState={effectiveMicState}
           micSupported={voiceInputSupported}
           micError={voice.micError}
           micAnalyser={voice.micAnalyser}
