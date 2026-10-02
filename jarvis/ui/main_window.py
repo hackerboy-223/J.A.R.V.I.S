@@ -3,8 +3,8 @@ from __future__ import annotations
 import sys
 import threading
 
-from PySide6.QtCore import Qt, Signal, QObject
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import Signal, QObject
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -19,11 +19,15 @@ from PySide6.QtWidgets import (
 )
 
 from jarvis.core.agent import JarvisAgent
+from jarvis.voice.stt import HandsFreeListener
 from jarvis.voice.tts import Speaker
 
 
 class Bridge(QObject):
     answer = Signal(str)
+    partial = Signal(str)
+    final_transcript = Signal(str)
+    voice_state = Signal(str)
 
 
 class MainWindow(QMainWindow):
@@ -31,10 +35,18 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("J.A.R.V.I.S. — H@CKERBOY")
         self.resize(1100, 720)
+
         self.bridge = Bridge()
         self.bridge.answer.connect(self._on_answer)
+        self.bridge.partial.connect(self._on_partial)
+        self.bridge.final_transcript.connect(self._on_final_transcript)
+        self.bridge.voice_state.connect(self._set_voice_state)
+
         self.speaker = Speaker()
         self.agent = JarvisAgent(confirm=self._confirm_action)
+        self.hands_free = False
+        self.listener: HandsFreeListener | None = None
+
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -64,11 +76,13 @@ class MainWindow(QMainWindow):
         title = QLabel("J.A.R.V.I.S.")
         title.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
         title.setStyleSheet("color:#00d4ff")
-        status = QLabel("CORE ONLINE · PYTHON DESKTOP AGENT")
-        status.setStyleSheet("color:#ffc864")
+
+        self.core_status = QLabel("CORE ONLINE · PYTHON DESKTOP AGENT")
+        self.core_status.setStyleSheet("color:#ffc864")
+
         header.addWidget(title)
         header.addStretch(1)
-        header.addWidget(status)
+        header.addWidget(self.core_status)
         layout.addLayout(header)
 
         self.chat = QTextEdit()
@@ -79,12 +93,29 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.chat, 1)
 
+        self.live_caption = QLabel("VOICE LINK OFFLINE")
+        self.live_caption.setWordWrap(True)
+        self.live_caption.setStyleSheet(
+            "border:1px solid #14536a; padding:10px; color:#7cecff; "
+            "font-family:Consolas; background:#051019;"
+        )
+        layout.addWidget(self.live_caption)
+
+        controls = QHBoxLayout()
+        self.voice_button = QPushButton("MAINS LIBRES : OFF")
+        self.voice_button.clicked.connect(self._toggle_voice)
+        controls.addWidget(self.voice_button)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
         composer = QHBoxLayout()
         self.input = QLineEdit()
         self.input.setPlaceholderText("Donnez une instruction à J.A.R.V.I.S...")
         self.input.returnPressed.connect(self._send)
+
         send = QPushButton("ENVOYER")
         send.clicked.connect(self._send)
+
         composer.addWidget(self.input, 1)
         composer.addWidget(send)
         layout.addLayout(composer)
@@ -101,24 +132,96 @@ class MainWindow(QMainWindow):
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    def _ensure_listener(self) -> HandsFreeListener:
+        if self.listener is None:
+            self.listener = HandsFreeListener(
+                on_partial=lambda text: self.bridge.partial.emit(text),
+                on_final=lambda text: self.bridge.final_transcript.emit(text),
+            )
+        return self.listener
+
+    def _toggle_voice(self) -> None:
+        if self.hands_free:
+            self.hands_free = False
+            if self.listener is not None:
+                self.listener.stop()
+            self.voice_button.setText("MAINS LIBRES : OFF")
+            self._set_voice_state("VOICE LINK OFFLINE")
+            return
+
+        try:
+            self.hands_free = True
+            self._ensure_listener().start()
+            self.voice_button.setText("MAINS LIBRES : ON")
+            self._set_voice_state("LISTENING · TRANSCRIPTION LOCALE")
+        except Exception as exc:
+            self.hands_free = False
+            self.voice_button.setText("MAINS LIBRES : OFF")
+            QMessageBox.critical(self, "Microphone", str(exc))
+
+    def _on_partial(self, text: str) -> None:
+        if self.hands_free:
+            self.live_caption.setText(f"LISTENING · {text}")
+
+    def _on_final_transcript(self, text: str) -> None:
+        if not self.hands_free or not text.strip():
+            return
+        if self.listener is not None:
+            self.listener.stop()
+        self.live_caption.setText(f"HEARD · {text}")
+        self._submit(text, spoken=True)
+
     def _send(self) -> None:
         text = self.input.text().strip()
         if not text:
             return
         self.input.clear()
+        self._submit(text, spoken=False)
+
+    def _submit(self, text: str, spoken: bool) -> None:
         self.chat.append(f"<br><b style='color:#ffc864'>H@CKERBOY</b><br>{text}")
         self.input.setEnabled(False)
-        threading.Thread(target=self._ask_worker, args=(text,), daemon=True).start()
+        self._set_voice_state("THINKING")
+        threading.Thread(
+            target=self._ask_worker,
+            args=(text, spoken),
+            daemon=True,
+        ).start()
 
-    def _ask_worker(self, text: str) -> None:
+    def _ask_worker(self, text: str, spoken: bool) -> None:
+        del spoken
         answer = self.agent.ask(text)
         self.bridge.answer.emit(answer)
+
+        if self.hands_free:
+            self.bridge.voice_state.emit("SPEAKING")
+            self.speaker.speak(answer)
+            if self.hands_free:
+                try:
+                    self._ensure_listener().start()
+                    self.bridge.voice_state.emit("LISTENING · TRANSCRIPTION LOCALE")
+                except Exception as exc:
+                    self.bridge.voice_state.emit(f"VOICE ERROR · {exc}")
 
     def _on_answer(self, answer: str) -> None:
         self.chat.append(f"<br><b style='color:#00d4ff'>J.A.R.V.I.S.</b><br>{answer}")
         self.input.setEnabled(True)
         self.input.setFocus()
-        self.speaker.speak_async(answer)
+        if not self.hands_free:
+            self._set_voice_state("CORE ONLINE")
+
+    def _set_voice_state(self, state: str) -> None:
+        self.core_status.setText(state)
+        if state.startswith("LISTENING"):
+            self.live_caption.setText("LISTENING · Parlez naturellement, H@CKERBOY.")
+        elif state == "SPEAKING":
+            self.live_caption.setText("SPEAKING · J.A.R.V.I.S. répond…")
+
+    def closeEvent(self, event) -> None:
+        if self.listener is not None:
+            self.listener.stop()
+        self.speaker.stop()
+        event.accept()
 
 
 def run_app() -> int:
