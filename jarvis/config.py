@@ -22,7 +22,7 @@ class Settings:
     hf_model: str = os.getenv("JARVIS_HF_MODEL", "zai-org/GLM-5.3-Flash")
     hf_provider: str = os.getenv("JARVIS_HF_PROVIDER", "auto")
     allow_pc_control: bool = os.getenv("JARVIS_ALLOW_PC_CONTROL", "false").lower() == "true"
-    whisper_model: str = os.getenv("JARVIS_WHISPER_MODEL", "small")
+    whisper_model: str = os.getenv("JARVIS_WHISPER_MODEL", "base")
     whisper_compute_type: str = os.getenv("JARVIS_WHISPER_COMPUTE", "int8")
     language: str = os.getenv("JARVIS_LANGUAGE", "fr")
     audio_device: str = os.getenv("JARVIS_AUDIO_DEVICE", "")
