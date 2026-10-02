@@ -178,7 +178,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
   const voicesReadyRef = React.useRef<Promise<void> | null>(null);
 
   /** Attend le chargement des voix du navigateur (une fois, ≤ 800 ms). */
-  const ensureVoicesReady = (): Promise<void> => {
+  const ensureVoicesReady = React.useCallback((): Promise<void> => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return Promise.resolve();
     }
@@ -198,7 +198,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
       });
     }
     return voicesReadyRef.current;
-  };
+  }, []);
 
   /** Meilleure voix française du navigateur (enregistée > Google > locales). */
   const pickBrowserVoice = React.useCallback((): SpeechSynthesisVoice | null => {
@@ -694,7 +694,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
         void drainQueue();
       }
     },
-    [drainQueue, drainBrowserQueue]
+    [drainQueue, drainBrowserQueue, ensureVoicesReady, pickBrowserVoice]
   );
 
   /** Clôt la session : attend que la file soit vide et lue intégralement. */
