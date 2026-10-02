@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   Eye,
@@ -74,6 +75,7 @@ export function SettingsDialog({
   onSave,
   onTest,
 }: SettingsDialogProps) {
+  const router = useRouter();
   const [token, setToken] = React.useState("");
   const [showToken, setShowToken] = React.useState(false);
   const [model, setModel] = React.useState(DEFAULT_MODEL);
@@ -98,7 +100,8 @@ export function SettingsDialog({
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
-      window.location.assign("/login");
+      router.replace("/login");
+      router.refresh();
     }
   };
 
