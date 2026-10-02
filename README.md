@@ -66,7 +66,7 @@ En production, J.A.R.V.I.S. se verrouille automatiquement. Définissez au minimu
 
 ```env
 JARVIS_ACCESS_PASSWORD="un-mot-de-passe-fort"
-JARVIS_SESSION_SECRET="une-longue-valeur-aleatoire-d-au-moins-24-caracteres"
+JARVIS_SESSION_SECRET="une-longue-valeur-aleatoire-d-au-moins-32-caracteres"
 JARVIS_ENCRYPTION_KEY="une-autre-longue-valeur-aleatoire"
 JARVIS_ALLOW_RUN_JS="false"
 ```
@@ -100,7 +100,7 @@ L'agent choisit ses outils **autonomement** selon votre demande — les résulta
 
 Tout se règle dans l'interface (**⚙ Réglages**) :
 
-- **Modèle** : GLM 4.6 / 4.5-Air / 4.5-Flash (sans token) ou modèles Hugging Face (token requis)
+- **Modèle** : GLM via l’environnement Z.ai configuré, ou modèles Hugging Face (token requis)
 - **Voix** : moteur navigateur (voix françaises natives) ou moteur serveur (tongtong ★, xiaochen ★ recommandées en français)
 - **Température, étapes max, prompt système**
 
