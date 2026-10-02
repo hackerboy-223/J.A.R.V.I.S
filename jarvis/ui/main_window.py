@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jarvis.config import settings
 from jarvis.core.agent import JarvisAgent
+from jarvis.ui.neural_widget import NeuralCoreWidget
 from jarvis.voice.stt import HandsFreeListener
 from jarvis.voice.tts import Speaker
 
@@ -79,13 +81,22 @@ class MainWindow(QMainWindow):
         title.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
         title.setStyleSheet("color:#00d4ff")
 
-        self.core_status = QLabel("CORE ONLINE · PYTHON DESKTOP AGENT")
+        provider_label = (
+            f"HF · {settings.hf_model}"
+            if settings.llm_provider in {"huggingface", "hf"}
+            else f"{settings.llm_provider.upper()} · {settings.llm_model}"
+        )
+        self.core_status = QLabel(f"CORE ONLINE · {provider_label}")
         self.core_status.setStyleSheet("color:#ffc864")
 
         header.addWidget(title)
         header.addStretch(1)
         header.addWidget(self.core_status)
         layout.addLayout(header)
+
+        self.neural = NeuralCoreWidget()
+        self.neural.set_state("idle")
+        layout.addWidget(self.neural)
 
         self.chat = QTextEdit()
         self.chat.setReadOnly(True)
@@ -229,6 +240,7 @@ class MainWindow(QMainWindow):
             self._set_voice_state("CORE ONLINE")
 
     def _set_voice_state(self, state: str) -> None:
+        self.neural.set_state(state)
         self.core_status.setText(state)
         if state.startswith("LISTENING"):
             self.live_caption.setText("LISTENING · Parlez naturellement, H@CKERBOY.")
