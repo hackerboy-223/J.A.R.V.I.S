@@ -565,8 +565,10 @@ class MainWindow(QMainWindow):
             self.live_caption.setText(state)
         elif state.startswith("TRANSCRIBING"):
             self.live_caption.setText(state)
-        elif state == "SPEAKING":
-            self.live_caption.setText("SPEAKING · J.A.R.V.I.S. répond…")
+        elif state.startswith("SPEAKING"):
+            self.live_caption.setText(
+                "SPEAKING · Dites « Jarvis » pour interrompre."
+            )
         elif state.startswith("MIC"):
             self.live_caption.setText(state)
 
