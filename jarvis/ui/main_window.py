@@ -28,6 +28,7 @@ class Bridge(QObject):
     partial = Signal(str)
     final_transcript = Signal(str)
     voice_state = Signal(str)
+    confirm_request = Signal(object)
 
 
 class MainWindow(QMainWindow):
@@ -41,6 +42,7 @@ class MainWindow(QMainWindow):
         self.bridge.partial.connect(self._on_partial)
         self.bridge.final_transcript.connect(self._on_final_transcript)
         self.bridge.voice_state.connect(self._set_voice_state)
+        self.bridge.confirm_request.connect(self._handle_confirm_request)
 
         self.speaker = Speaker()
         self.agent = JarvisAgent(confirm=self._confirm_action)
@@ -123,6 +125,19 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
 
     def _confirm_action(self, summary: str) -> bool:
+        request = {
+            "summary": summary,
+            "event": threading.Event(),
+            "allowed": False,
+        }
+        self.bridge.confirm_request.emit(request)
+        request["event"].wait(timeout=60)
+        return bool(request["allowed"])
+
+    def _handle_confirm_request(self, request: object) -> None:
+        if not isinstance(request, dict):
+            return
+        summary = str(request.get("summary", "Autoriser cette action ?"))
         answer = QMessageBox.question(
             self,
             "Autorisation J.A.R.V.I.S.",
@@ -130,7 +145,10 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
-        return answer == QMessageBox.StandardButton.Yes
+        request["allowed"] = answer == QMessageBox.StandardButton.Yes
+        event = request.get("event")
+        if isinstance(event, threading.Event):
+            event.set()
 
     def _ensure_listener(self) -> HandsFreeListener:
         if self.listener is None:
