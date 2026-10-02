@@ -385,10 +385,13 @@ class MainWindow(QMainWindow):
             f"<br><b style='color:#ff5757'>VOICE DIAGNOSTIC</b><br>{message}"
         )
 
+        lower_message = message.lower()
         fatal = (
-            "Whisper" in message
-            or "microphone" in message.lower()
-            or "périphérique" in message.lower()
+            "whisper" in lower_message
+            or "microphone" in lower_message
+            or "périphérique" in lower_message
+            or "mémoire insuffisante" in lower_message
+            or "memory" in lower_message
         )
         if fatal:
             self.hands_free = False
