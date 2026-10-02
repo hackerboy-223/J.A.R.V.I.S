@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 import queue
 import threading
 import time
 import unicodedata
+import wave
 import zipfile
 from pathlib import Path
 from collections.abc import Callable
@@ -372,7 +374,67 @@ class VoskHandsFreeListener:
             except queue.Empty:
                 pass
 
+    def _wav_bytes(self, pcm: bytes) -> bytes:
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(self.sample_rate)
+            wav.writeframes(pcm)
+        return buffer.getvalue()
+
+    def _transcribe_groq(self, pcm: bytes) -> str:
+        if not settings.groq_api_key:
+            return ""
+
+        audio = self._wav_bytes(pcm)
+        response = httpx.post(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={
+                "Authorization": f"Bearer {settings.groq_api_key}",
+            },
+            files={
+                "file": ("jarvis.wav", audio, "audio/wav"),
+            },
+            data={
+                "model": settings.groq_stt_model,
+                "language": settings.language,
+                "response_format": "json",
+                "temperature": "0",
+                "prompt": (
+                    "Conversation naturelle en français avec un assistant nommé JARVIS. "
+                    "Termes fréquents : H@CKERBOY, OpenRouter, Python, GitHub, Vosk, "
+                    "Ollama, JARVIS, PowerShell."
+                ),
+            },
+            timeout=45,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return str(payload.get("text", "")).strip()
+
+    def _final_transcript(self, pcm: bytes, vosk_text: str) -> str:
+        provider = settings.stt_provider
+
+        if provider in {"hybrid", "groq", "auto"} and settings.groq_api_key:
+            self.on_status(
+                f"TRANSCRIBING · GROQ {settings.groq_stt_model.upper()}"
+            )
+            try:
+                text = self._transcribe_groq(pcm)
+                if text:
+                    return text
+            except Exception as exc:
+                self.on_status(
+                    f"GROQ STT INDISPONIBLE · FALLBACK VOSK ({type(exc).__name__})"
+                )
+
+        return vosk_text.strip()
+
     def _loop(self, recognizer: KaldiRecognizer) -> None:
+        utterance = bytearray()
+        max_bytes = self.sample_rate * 2 * 20
+
         try:
             while self._active.is_set() and not self._shutdown.is_set():
                 try:
@@ -380,15 +442,27 @@ class VoskHandsFreeListener:
                 except queue.Empty:
                     continue
 
+                utterance.extend(data)
+                if len(utterance) > max_bytes:
+                    del utterance[:-max_bytes]
+
                 if recognizer.AcceptWaveform(data):
                     payload = json.loads(recognizer.Result())
-                    text = str(payload.get("text", "")).strip()
-                    if not text:
+                    vosk_text = str(payload.get("text", "")).strip()
+
+                    if not vosk_text:
+                        utterance.clear()
                         continue
 
                     self.on_status("TRANSCRIBING · PHRASE REÇUE")
                     self.stop()
-                    self.on_final(text)
+
+                    final_text = self._final_transcript(
+                        bytes(utterance),
+                        vosk_text,
+                    )
+                    if final_text:
+                        self.on_final(final_text)
                     return
 
                 payload = json.loads(recognizer.PartialResult())
