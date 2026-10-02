@@ -31,8 +31,8 @@ class NeuralCoreWidget(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setMinimumHeight(320)
-        self.setMaximumHeight(420)
+        self.setMinimumHeight(360)
+        self.setMaximumHeight(560)
 
         self._phase = 0.0
         self._state = "idle"
