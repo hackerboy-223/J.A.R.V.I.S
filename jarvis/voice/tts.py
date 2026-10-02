@@ -17,9 +17,6 @@ class Speaker:
             self._engine.say(text)
             self._engine.runAndWait()
 
-    def speak_async(self, text: str) -> None:
-        threading.Thread(target=self.speak, args=(text,), daemon=True).start()
-
     def stop(self) -> None:
         with self._lock:
             self._engine.stop()
