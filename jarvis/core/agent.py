@@ -76,7 +76,13 @@ class JarvisAgent:
         self.memory.add_message("user", clean)
 
         for _ in range(6):
-            result = self.llm.complete(messages, self.tools.definitions())
+            try:
+                result = self.llm.complete(messages, self.tools.definitions())
+            except Exception as exc:
+                answer = f"Erreur du moteur IA : {exc}"
+                self.memory.add_message("assistant", answer)
+                return answer
+
             message = result.get("message") or {}
             calls = message.get("tool_calls") or []
 
