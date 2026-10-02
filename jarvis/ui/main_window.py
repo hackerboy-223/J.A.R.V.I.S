@@ -4,8 +4,8 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Signal, QObject
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Signal, QObject, QTimer
+from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -37,6 +37,8 @@ class Bridge(QObject):
     voice_error = Signal(str)
     voice_level = Signal(float)
     agent_progress = Signal(str)
+    barge_in = Signal()
+    speech_finished = Signal()
     confirm_request = Signal(object)
 
 
@@ -54,12 +56,21 @@ class MainWindow(QMainWindow):
         self.bridge.voice_error.connect(self._on_voice_error)
         self.bridge.voice_level.connect(self._on_voice_level)
         self.bridge.agent_progress.connect(self._on_agent_progress)
+        self.bridge.barge_in.connect(self._on_barge_in)
+        self.bridge.speech_finished.connect(self._on_speech_finished)
         self.bridge.confirm_request.connect(self._handle_confirm_request)
 
         self.speaker = Speaker()
         self.agent = JarvisAgent(confirm=self._confirm_action)
         self.hands_free = False
         self.listener: HandsFreeListener | None = None
+
+        self._typewriter_text = ""
+        self._typewriter_index = 0
+        self._typewriter_cursor: QTextCursor | None = None
+        self._typewriter_timer = QTimer(self)
+        self._typewriter_timer.setInterval(18)
+        self._typewriter_timer.timeout.connect(self._typewriter_tick)
 
         self._build_ui()
 
@@ -321,6 +332,81 @@ class MainWindow(QMainWindow):
         self.core_status.setText(status)
         self.live_caption.setText(status)
 
+    def _start_typewriter(self, answer: str) -> None:
+        self._typewriter_timer.stop()
+        self._typewriter_text = answer
+        self._typewriter_index = 0
+
+        cursor = self.chat.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertHtml("<br><b style='color:#00d4ff'>J.A.R.V.I.S.</b><br>")
+        self._typewriter_cursor = cursor
+        self.chat.setTextCursor(cursor)
+        self.chat.ensureCursorVisible()
+        self._typewriter_timer.start()
+
+    def _typewriter_tick(self) -> None:
+        cursor = self._typewriter_cursor
+        if cursor is None:
+            self._typewriter_timer.stop()
+            return
+
+        if self._typewriter_index >= len(self._typewriter_text):
+            self._typewriter_timer.stop()
+            self._typewriter_cursor = None
+            return
+
+        remaining = len(self._typewriter_text) - self._typewriter_index
+        chunk_size = 1 if remaining < 40 else 2
+        end = min(
+            len(self._typewriter_text),
+            self._typewriter_index + chunk_size,
+        )
+        chunk = self._typewriter_text[self._typewriter_index:end]
+        cursor.insertText(chunk)
+        self._typewriter_index = end
+        self.chat.setTextCursor(cursor)
+        self.chat.ensureCursorVisible()
+
+    def _finish_typewriter(self) -> None:
+        cursor = self._typewriter_cursor
+        if cursor is None:
+            return
+
+        if self._typewriter_index < len(self._typewriter_text):
+            cursor.insertText(self._typewriter_text[self._typewriter_index:])
+            self._typewriter_index = len(self._typewriter_text)
+
+        self._typewriter_timer.stop()
+        self._typewriter_cursor = None
+        self.chat.setTextCursor(cursor)
+        self.chat.ensureCursorVisible()
+
+    def _on_barge_in(self) -> None:
+        if not self.hands_free:
+            return
+
+        self.speaker.stop()
+        if self.listener is not None:
+            self.listener.stop_keyword_monitor()
+
+        self.neural.set_state("listening")
+        self.core_status.setText("INTERRUPTED · LISTENING")
+        self.live_caption.setText(
+            "JARVIS · Interruption détectée. Je vous écoute, H@CKERBOY."
+        )
+
+        try:
+            self._ensure_listener().start()
+        except Exception as exc:
+            self.bridge.voice_error.emit(
+                f"Erreur reprise microphone après interruption : {exc}"
+            )
+
+    def _on_speech_finished(self) -> None:
+        if self.listener is not None:
+            self.listener.stop_keyword_monitor()
+
     def _test_voice(self) -> None:
         was_hands_free = self.hands_free
         if was_hands_free and self.listener is not None:
@@ -445,18 +531,25 @@ class MainWindow(QMainWindow):
         if self.hands_free:
             self.bridge.voice_state.emit("SPEAKING")
             try:
+                listener = self._ensure_listener()
+                listener.start_keyword_monitor(
+                    lambda: self.bridge.barge_in.emit()
+                )
                 self.speaker.speak(answer)
             except Exception as exc:
                 self.bridge.voice_error.emit(f"Erreur synthèse vocale : {exc}")
             finally:
+                self.bridge.speech_finished.emit()
                 if self.hands_free:
                     try:
                         self._ensure_listener().start()
                     except Exception as exc:
-                        self.bridge.voice_error.emit(f"Erreur reprise microphone : {exc}")
+                        self.bridge.voice_error.emit(
+                            f"Erreur reprise microphone : {exc}"
+                        )
 
     def _on_answer(self, answer: str) -> None:
-        self.chat.append(f"<br><b style='color:#00d4ff'>J.A.R.V.I.S.</b><br>{answer}")
+        self._start_typewriter(answer)
         self.input.setEnabled(True)
         self.input.setFocus()
         if not self.hands_free:
@@ -478,6 +571,7 @@ class MainWindow(QMainWindow):
             self.live_caption.setText(state)
 
     def closeEvent(self, event) -> None:
+        self._typewriter_timer.stop()
         if self.listener is not None:
             self.listener.shutdown()
         self.speaker.stop()
