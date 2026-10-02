@@ -111,7 +111,7 @@ export function useHandsFreeSpeech({
   const commitUtterance = React.useCallback(() => {
     if (processingRef.current) return;
 
-    const text = cleanJoin(finalRef.current);
+    const text = cleanJoin(finalRef.current, interimRef.current);
     if (!text) return;
 
     clearTimers();
@@ -160,16 +160,13 @@ export function useHandsFreeSpeech({
       if (!wantedRef.current || processingRef.current || pausedRef.current) return;
 
       let interim = "";
-      let receivedFinal = false;
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const text = result?.[0]?.transcript?.trim() ?? "";
         if (!text) continue;
 
         if (result.isFinal) {
           finalRef.current = cleanJoin(finalRef.current, text);
-          receivedFinal = true;
         } else {
           interim = cleanJoin(interim, text);
         }
@@ -178,10 +175,14 @@ export function useHandsFreeSpeech({
       interimRef.current = interim;
       setTranscript(cleanJoin(finalRef.current, interimRef.current));
 
-      if (receivedFinal && finalRef.current) {
+      const currentText = cleanJoin(finalRef.current, interimRef.current);
+      if (currentText) {
         if (silenceTimerRef.current !== null) {
           window.clearTimeout(silenceTimerRef.current);
         }
+        // La période de silence fait office de VAD conversationnel.
+        // On accepte aussi la meilleure hypothèse intermédiaire si le navigateur
+        // tarde à publier un résultat final.
         silenceTimerRef.current = window.setTimeout(commitUtterance, silenceMs);
       }
     };
