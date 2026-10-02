@@ -84,7 +84,7 @@ class JarvisAgent:
                     "required": ["action", "target"],
                     "additionalProperties": False,
                 },
-                requires_confirmation=True,
+                requires_confirmation=settings.confirm_safe_pc_actions,
             )
         )
 
