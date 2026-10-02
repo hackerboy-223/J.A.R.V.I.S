@@ -6,12 +6,6 @@ import { cn } from "@/lib/utils";
 import { HudPanel } from "./HudPanel";
 import { RadarSweep } from "./RadarSweep";
 
-/**
- * Rail de télémétrie J.A.R.V.I.S. : horloge, statut de la machine,
- * surveillance radar. Compact (~218 px de large), valeurs brutes
- * formatées côté client (aucun mismatch d'hydratation).
- */
-
 const timeFmt = new Intl.DateTimeFormat("fr-FR", {
   hour: "2-digit",
   minute: "2-digit",
@@ -42,19 +36,13 @@ const SHIMMER_STYLE: React.CSSProperties = {
   backgroundSize: "200% 100%",
 };
 
-/** Barre de niveau avec reflet animé ; passe à l'or au-delà de 80 %. */
 function Meter({ label, pct }: { label: string; pct: number }): React.JSX.Element {
   const hot = pct > 80;
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="hud-label">{label}</span>
-        <span
-          className={cn(
-            "font-mono text-[10px] tabular-nums",
-            hot ? "text-gold" : "text-primary",
-          )}
-        >
+        <span className={cn("font-mono text-[10px] tabular-nums", hot ? "text-gold" : "text-primary")}>
           {pct} % · {hot ? "ÉLEVÉ" : "NOMINAL"}
         </span>
       </div>
@@ -63,22 +51,24 @@ function Meter({ label, pct }: { label: string; pct: number }): React.JSX.Elemen
           className={cn("relative h-full rounded-full", hot ? "bg-gold/85" : "bg-primary/85")}
           style={{ width: `${pct}%` }}
         >
-          <span
-            aria-hidden
-            className="animate-shimmer absolute inset-0 rounded-full"
-            style={SHIMMER_STYLE}
-          />
+          <span aria-hidden className="animate-shimmer absolute inset-0 rounded-full" style={SHIMMER_STYLE} />
         </div>
       </div>
     </div>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }): React.JSX.Element {
+function Row({ label, value, active }: { label: string; value: string; active?: boolean }): React.JSX.Element {
   return (
     <div className="flex items-baseline justify-between gap-2">
       <span className="hud-label shrink-0">{label}</span>
-      <span className="truncate font-mono text-[10px] text-foreground/80" title={value}>
+      <span
+        className={cn(
+          "truncate font-mono text-[10px] font-medium",
+          active ? "text-primary" : "text-foreground/80"
+        )}
+        title={value}
+      >
         {value}
       </span>
     </div>
@@ -92,9 +82,7 @@ export function TelemetryPanel({
   status: SystemStatus | null;
   className?: string;
 }): React.JSX.Element {
-  // Horloge : initialisée côté client uniquement (pas de mismatch SSR)
   const [now, setNow] = React.useState<Date | null>(null);
-  // navigator.onLine : idem, null jusqu'au montage
   const [online, setOnline] = React.useState<boolean | null>(null);
 
   React.useEffect(() => {
@@ -126,8 +114,20 @@ export function TelemetryPanel({
 
   return (
     <div className={cn("flex w-[218px] shrink-0 flex-col gap-3 text-[11px]", className)}>
-      {/* HORLOGE */}
-      <HudPanel title="HORLOGE">
+      <HudPanel title="NOYAU J.A.R.V.I.S.">
+        <div className="space-y-2">
+          <Row label="COGNITION" value="OPÉRATIONNEL" active />
+          <Row label="INTERFACE HUD" value="ACTIVE" active />
+          <Row label="TÉLÉMÉTRIE" value={status ? "SYNCHRONISÉE" : "ACQUISITION"} active={!!status} />
+          <Row
+            label="LIAISON RÉSEAU"
+            value={online === null ? "ACQUISITION" : online ? "ÉTABLIE" : "HORS LIGNE"}
+            active={online === true}
+          />
+        </div>
+      </HudPanel>
+
+      <HudPanel title="CHRONOMÉTRIE">
         <div className="flex flex-col items-center gap-0.5">
           <div className="glow-text font-mono text-xl tabular-nums text-primary">
             {now ? timeFmt.format(now) : "--:--:--"}
@@ -138,43 +138,33 @@ export function TelemetryPanel({
         </div>
       </HudPanel>
 
-      {/* STATUT MACHINE */}
-      <HudPanel title="STATUT MACHINE">
+      <HudPanel title="SYSTÈME HÔTE">
         {status ? (
           <div className="space-y-2.5">
             <Meter label="MÉMOIRE" pct={memPct} />
             <Meter label="CHARGE CPU" pct={cpuPct} />
             <Row label="UPTIME" value={formatUptime(status.osUptime)} />
-            <Row label="HOSTNAME" value={status.hostname} />
+            <Row label="HOST" value={status.hostname} />
             <Row label="PLATEFORME" value={`${status.platform} · ${status.arch}`} />
-            <Row label="NODE" value={status.nodeVersion} />
+            <Row label="RUNTIME" value={status.nodeVersion} />
           </div>
         ) : (
           <div className="flex items-center gap-2 py-2">
             <span className="dot-pulse inline-block size-1.5 rounded-full bg-primary" />
-            <span className="hud-label">ACQUISITION…</span>
+            <span className="hud-label">ACQUISITION DES DONNÉES…</span>
           </div>
         )}
       </HudPanel>
 
-      {/* SURVEILLANCE */}
-      <HudPanel title="SURVEILLANCE">
+      <HudPanel title="CAPTEURS LOGICIELS">
         <div className="flex flex-col items-center gap-2.5 py-1">
           <RadarSweep size={84} />
-          <div className="flex w-full items-center justify-between font-mono text-[10px] text-muted-foreground">
-            <span>SECTEURS ANALYSÉS</span>
-            <span className="text-primary">∞</span>
-          </div>
-          <div className="flex w-full items-center justify-between font-mono text-[10px] text-muted-foreground">
-            <span>RÉSEAU</span>
-            {online === null ? (
-              <span>…</span>
-            ) : online ? (
-              <span className="text-primary">EN LIGNE</span>
-            ) : (
-              <span className="text-destructive">HORS LIGNE</span>
-            )}
-          </div>
+          <Row label="SCAN INTERFACE" value="ACTIF" active />
+          <Row
+            label="RÉSEAU"
+            value={online === null ? "…" : online ? "EN LIGNE" : "HORS LIGNE"}
+            active={online === true}
+          />
         </div>
       </HudPanel>
     </div>
