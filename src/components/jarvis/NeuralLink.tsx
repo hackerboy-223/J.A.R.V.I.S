@@ -155,9 +155,10 @@ export function NeuralLink({
 
   const mainText =
     responseText ||
-    (phase === "thinking" ? transcript || statusText || "Analyse en cours…" : null) ||
-    (phase === "transcribing" ? "Conversion de la parole en texte…" : null) ||
-    (phase === "listening" ? "Canal vocal ouvert." : null);
+    (phase === "listening" && transcript ? transcript : null) ||
+    (phase === "thinking" ? statusText || transcript || "Analyse en cours…" : null) ||
+    (phase === "transcribing" ? transcript || "Phrase reçue…" : null) ||
+    (phase === "listening" ? "Parlez naturellement, Monsieur…" : null);
 
   return (
     <div
@@ -231,6 +232,12 @@ export function NeuralLink({
         </h2>
 
         <VoiceBars active={phase === "listening" || phase === "speaking"} />
+
+        {phase === "listening" && (
+          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-primary/70">
+            Transcription en temps réel · mains libres
+          </p>
+        )}
 
         <section className="mt-3 min-h-28 w-full max-w-2xl border border-primary/20 bg-black/25 p-4 backdrop-blur-sm">
           {mainText ? (
