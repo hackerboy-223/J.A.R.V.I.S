@@ -4,7 +4,7 @@
   "description": "J.A.R.V.I.S. — Assistant IA vocal façon Iron Man, propulsé par GLM (Z.ai) et Hugging Face",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "prisma generate && prisma db push && next dev -p 3000",
     "build": "prisma generate && next build && node scripts/copy-standalone.mjs",
     "start": "node scripts/start-standalone.mjs",
     "lint": "eslint .",
@@ -14,7 +14,8 @@
     "db:reset": "prisma migrate reset",
     "typecheck": "prisma generate && tsc --noEmit",
     "check": "bun run lint && bun run typecheck && bun run build",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:sync": "prisma db push"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
