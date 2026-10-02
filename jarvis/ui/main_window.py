@@ -126,6 +126,10 @@ class MainWindow(QMainWindow):
         diagnostic_button = QPushButton("DIAGNOSTIC MICRO")
         diagnostic_button.clicked.connect(self._diagnose_microphone)
         controls.addWidget(diagnostic_button)
+
+        test_voice_button = QPushButton("TEST VOIX")
+        test_voice_button.clicked.connect(self._test_voice)
+        controls.addWidget(test_voice_button)
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -198,6 +202,25 @@ class MainWindow(QMainWindow):
             self.hands_free = False
             self.voice_button.setText("MAINS LIBRES : OFF")
             QMessageBox.critical(self, "Microphone", str(exc))
+
+    def _test_voice(self) -> None:
+        was_hands_free = self.hands_free
+        if was_hands_free and self.listener is not None:
+            self.listener.stop()
+
+        self._set_voice_state("SPEAKING")
+
+        def worker() -> None:
+            try:
+                self.speaker.test()
+                if was_hands_free and self.hands_free:
+                    self._ensure_listener().start()
+                elif not self.hands_free:
+                    self.bridge.voice_state.emit("CORE ONLINE")
+            except Exception as exc:
+                self.bridge.voice_error.emit(f"Erreur test voix : {exc}")
+
+        threading.Thread(target=worker, name="jarvis-tts-test", daemon=True).start()
 
     def _diagnose_microphone(self) -> None:
         try:
