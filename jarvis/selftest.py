@@ -43,6 +43,11 @@ def run() -> int:
         from jarvis.knowledge import KnowledgeBase
         with tempfile.TemporaryDirectory() as tmp:
             kb = KnowledgeBase(Path(tmp) / "knowledge.db")
+
+            class _OfflineEmbeddings:
+                enabled = False
+
+            kb.embedding_client = _OfflineEmbeddings()
             kb.add_text(
                 "demo.txt",
                 "Python est un langage de programmation. "
