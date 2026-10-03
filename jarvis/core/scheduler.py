@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
 import sqlite3
 import threading
@@ -37,7 +38,7 @@ class TaskScheduler:
         return db
 
     def _init_db(self) -> None:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -97,7 +98,7 @@ class TaskScheduler:
 
         task_id = uuid.uuid4().hex[:12]
         next_run = self._next_run(schedule_type, schedule_value)
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.execute(
                 """
                 INSERT INTO scheduled_tasks(
@@ -118,7 +119,7 @@ class TaskScheduler:
         return self.get(task_id)
 
     def get(self, task_id: str) -> dict[str, Any]:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             row = db.execute(
                 "SELECT * FROM scheduled_tasks WHERE id = ?",
                 (task_id,),
@@ -128,7 +129,7 @@ class TaskScheduler:
         return dict(row)
 
     def list(self, limit: int = 100) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             rows = db.execute(
                 """
                 SELECT * FROM scheduled_tasks
@@ -140,7 +141,7 @@ class TaskScheduler:
         return [dict(row) for row in rows]
 
     def pause(self, task_id: str) -> dict[str, Any]:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             cur = db.execute(
                 "UPDATE scheduled_tasks SET enabled = 0 WHERE id = ?",
                 (task_id,),
@@ -153,7 +154,7 @@ class TaskScheduler:
     def resume(self, task_id: str) -> dict[str, Any]:
         task = self.get(task_id)
         next_run = self._next_run(task["schedule_type"], task["schedule_value"])
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.execute(
                 """
                 UPDATE scheduled_tasks
@@ -167,7 +168,7 @@ class TaskScheduler:
 
     def cancel(self, task_id: str) -> dict[str, Any]:
         task = self.get(task_id)
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
             db.commit()
         return {"cancelled": True, "id": task_id, "prompt": task["prompt"]}
@@ -189,7 +190,7 @@ class TaskScheduler:
     def _claim_due(self) -> list[dict[str, Any]]:
         now = time.time()
         claimed: list[dict[str, Any]] = []
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             rows = db.execute(
                 """
                 SELECT * FROM scheduled_tasks
@@ -231,7 +232,7 @@ class TaskScheduler:
         try:
             self.callback(task)
         except Exception as exc:
-            with self._lock, self._connect() as db:
+            with self._lock, closing(self._connect()) as db:
                 db.execute(
                     "UPDATE scheduled_tasks SET last_error = ? WHERE id = ?",
                     (str(exc)[:2000], task["id"]),

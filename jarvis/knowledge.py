@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import math
 import re
@@ -35,7 +36,7 @@ class KnowledgeBase:
         return db
 
     def _init_db(self) -> None:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS knowledge_documents (
@@ -99,7 +100,7 @@ class KnowledgeBase:
             except Exception:
                 vectors = []
 
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.execute(
                 """
                 INSERT INTO knowledge_documents(id, name, source_path, size_chars)
@@ -154,7 +155,7 @@ class KnowledgeBase:
         return self.add_text(path.name, text, str(path))
 
     def list_documents(self) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             rows = db.execute(
                 """
                 SELECT d.id, d.name, d.source_path, d.size_chars, d.created_at,
@@ -168,7 +169,7 @@ class KnowledgeBase:
         return [dict(row) for row in rows]
 
     def remove_document(self, doc_id: str) -> None:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.execute("DELETE FROM knowledge_chunks WHERE document_id = ?", (doc_id,))
             db.execute("DELETE FROM knowledge_documents WHERE id = ?", (doc_id,))
             db.commit()
@@ -178,7 +179,7 @@ class KnowledgeBase:
         if not q_tokens:
             return []
 
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             rows = db.execute(
                 """
                 SELECT c.id, c.document_id, c.chunk_index, c.text,
