@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import type { ConversationDetail } from "@/lib/types";
+import { requireAuthorized } from "@/lib/server/auth";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function GET(req: NextRequest, { params }: Params) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const conv = await db.conversation.findUnique({
@@ -43,6 +47,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
+  const limited = enforceRateLimit(req, { name: "conversation-write", limit: 40, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const { id } = await params;
     const body = (await req.json()) as { title?: string };
@@ -58,7 +66,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(req: NextRequest, { params }: Params) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
+  const limited = enforceRateLimit(req, { name: "conversation-write", limit: 40, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const { id } = await params;
     await db.conversation.delete({ where: { id } });

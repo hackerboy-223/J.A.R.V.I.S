@@ -45,7 +45,7 @@ const MessageItemImpl = function MessageItem({ message }: { message: UiMessage }
 
   if (message.role === "tool") {
     return (
-      <div className="flex justify-start pl-0 sm:pl-10">
+      <div className="jarvis-message-row flex justify-start pl-0 sm:pl-10">
         <div className="w-full max-w-2xl">
           <ToolCard message={message} />
         </div>
@@ -56,7 +56,7 @@ const MessageItemImpl = function MessageItem({ message }: { message: UiMessage }
   const isUser = message.role === "user";
 
   return (
-    <div className={cn("flex items-start gap-3", isUser ? "flex-row-reverse" : "flex-row")}>
+    <div className={cn("jarvis-message-row flex items-start gap-3", isUser ? "flex-row-reverse" : "flex-row")}>
       {isUser ? (
         <div
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-gold/40 bg-gold/10 text-gold"

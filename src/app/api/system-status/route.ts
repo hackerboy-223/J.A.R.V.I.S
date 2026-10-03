@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import os from "node:os";
 import type { SystemStatus } from "@/lib/types";
+import { requireAuthorized } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
   try {
     const totalMem = os.totalmem();
     const freeMem = os.freemem();

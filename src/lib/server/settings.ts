@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { protectSecret, revealSecret } from "@/lib/server/secrets";
 import {
   DEFAULT_MODEL,
   DEFAULT_VOICE,
@@ -16,7 +17,30 @@ export async function getSettingsRow() {
   if (!row) {
     row = await db.settings.create({ data: { id: SINGLETON } });
   }
-  return row;
+  if (
+    process.env.NODE_ENV === "production" &&
+    row.hfToken &&
+    !row.hfToken.startsWith("enc:v1:") &&
+    !process.env.JARVIS_ENCRYPTION_KEY?.trim()
+  ) {
+    throw new Error(
+      "JARVIS_ENCRYPTION_KEY est requis en production pour sécuriser le token Hugging Face existant."
+    );
+  }
+
+  if (
+    row.hfToken &&
+    !row.hfToken.startsWith("enc:v1:") &&
+    process.env.JARVIS_ENCRYPTION_KEY?.trim()
+  ) {
+    const encrypted = protectSecret(row.hfToken);
+    row = await db.settings.update({
+      where: { id: SINGLETON },
+      data: { hfToken: encrypted },
+    });
+  }
+
+  return { ...row, hfToken: revealSecret(row.hfToken) };
 }
 
 function maskToken(token: string): string {
@@ -40,9 +64,10 @@ export function toPublicSettings(row: {
   voiceEngine: string | null;
   browserVoiceUri: string | null;
 }): PublicSettings {
+  const hfToken = revealSecret(row.hfToken);
   return {
-    hasToken: !!row.hfToken,
-    tokenPreview: row.hfToken ? maskToken(row.hfToken) : null,
+    hasToken: !!hfToken,
+    tokenPreview: hfToken ? maskToken(hfToken) : null,
     model: row.model || DEFAULT_MODEL,
     customModel: row.customModel,
     engine: (row.engine as EngineMode) || "auto",

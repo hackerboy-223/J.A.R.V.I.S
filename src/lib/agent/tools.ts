@@ -1,7 +1,9 @@
 import vm from "node:vm";
 import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
 import ZAI from "z-ai-web-dev-sdk";
-import { AGENT_TOOLS, HUD_ACTIONS, type HudAction } from "@/lib/types";
+import { HUD_ACTIONS, type HudAction } from "@/lib/types";
 
 export interface ToolContext {
   signal?: AbortSignal;
@@ -177,6 +179,15 @@ function fmtValue(v: unknown): string {
 }
 
 const runJs: ToolFn = async (args) => {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.JARVIS_ALLOW_RUN_JS !== "true"
+  ) {
+    throw new Error(
+      "run_js est désactivé en production. Définis JARVIS_ALLOW_RUN_JS=true uniquement dans un environnement isolé."
+    );
+  }
+
   const code = str(args, "code");
   if (code.length > 20000) throw new Error("Code trop long (20 000 caractères max)");
   const logs: string[] = [];
@@ -285,6 +296,76 @@ const systemStatus: ToolFn = async () => {
 };
 
 // ---------------------------------------------------------------
+// pc_control — actions locales non destructives sur Windows
+// ---------------------------------------------------------------
+
+function launchDetached(command: string, args: string[] = []): void {
+  const child = spawn(command, args, {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: false,
+  });
+  child.unref();
+}
+
+const pcControl: ToolFn = async (args) => {
+  if (process.env.JARVIS_ALLOW_PC_CONTROL !== "true") {
+    throw new Error(
+      "Contrôle PC désactivé. Définis JARVIS_ALLOW_PC_CONTROL=true dans .env pour l'activer explicitement."
+    );
+  }
+
+  if (process.platform !== "win32") {
+    throw new Error("Le contrôle PC local est actuellement disponible uniquement sous Windows.");
+  }
+
+  const action = str(args, "action").toLowerCase();
+
+  if (action === "open_app") {
+    const app = str(args, "target").toLowerCase();
+    const apps: Record<string, { command: string; args?: string[] }> = {
+      calculator: { command: "calc.exe" },
+      notepad: { command: "notepad.exe" },
+      explorer: { command: "explorer.exe" },
+    };
+    const entry = apps[app];
+    if (!entry) {
+      throw new Error("Application non autorisée. Valeurs: calculator, notepad, explorer.");
+    }
+    launchDetached(entry.command, entry.args ?? []);
+    return { action, target: app, status: "OPENED" };
+  }
+
+  if (action === "open_folder") {
+    const target = str(args, "target").toLowerCase();
+    const home = os.homedir();
+    const folders: Record<string, string> = {
+      desktop: path.join(home, "Desktop"),
+      documents: path.join(home, "Documents"),
+      downloads: path.join(home, "Downloads"),
+      project: process.cwd(),
+    };
+    const folder = folders[target];
+    if (!folder) {
+      throw new Error("Dossier non autorisé. Valeurs: desktop, documents, downloads, project.");
+    }
+    launchDetached("explorer.exe", [folder]);
+    return { action, target, path: folder, status: "OPENED" };
+  }
+
+  if (action === "open_url") {
+    const url = str(args, "target");
+    if (!/^https?:\/\//i.test(url)) {
+      throw new Error("Seules les URL http:// et https:// sont autorisées.");
+    }
+    launchDetached("explorer.exe", [url]);
+    return { action, target: url, status: "OPENED" };
+  }
+
+  throw new Error("Action PC inconnue. Valeurs: open_app, open_folder, open_url.");
+};
+
+// ---------------------------------------------------------------
 // hud_action — JARVIS agit sur l'interface holographique
 // ---------------------------------------------------------------
 
@@ -319,6 +400,7 @@ export const TOOL_REGISTRY: Record<string, { fn: ToolFn; timeoutMs: number }> = 
   run_js: { fn: runJs, timeoutMs: 8000 },
   get_datetime: { fn: getDatetime, timeoutMs: 3000 },
   system_status: { fn: systemStatus, timeoutMs: 3000 },
+  pc_control: { fn: pcControl, timeoutMs: 3000 },
   hud_action: { fn: hudAction, timeoutMs: 2000 },
 };
 

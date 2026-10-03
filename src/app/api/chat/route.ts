@@ -6,6 +6,8 @@ import { callLlm, type LlmMessage } from "@/lib/agent/engines";
 import { executeTool } from "@/lib/agent/tools";
 import { isValidToolCall } from "@/lib/agent/parse";
 import { resolveModel, isStarkModel, MAX_CONTEXT_MESSAGES, type ActiveEngine, type ChatSseEvent } from "@/lib/types";
+import { requireAuthorized } from "@/lib/server/auth";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -35,6 +37,11 @@ function toolContextMessage(toolName: string, resultJson: string, isError: boole
 }
 
 export async function POST(req: NextRequest) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
+  const limited = enforceRateLimit(req, { name: "chat", limit: 20, windowMs: 60_000 });
+  if (limited) return limited;
+
   let conversationId: string | null = null;
   let content = "";
   let voiceMode = false;
@@ -95,11 +102,13 @@ export async function POST(req: NextRequest) {
   });
 
   // Contexte LLM : system + historique récent
-  const history = await db.message.findMany({
-    where: { conversationId: conv.id },
-    orderBy: { createdAt: "asc" },
-    take: MAX_CONTEXT_MESSAGES,
-  });
+  const history = (
+    await db.message.findMany({
+      where: { conversationId: conv.id },
+      orderBy: { createdAt: "desc" },
+      take: MAX_CONTEXT_MESSAGES,
+    })
+  ).reverse();
 
   const llmMessages: LlmMessage[] = [
     { role: "system", content: buildSystemPrompt({ maxSteps: settings.maxSteps, customPrompt: settings.systemPrompt, voiceMode }) },
@@ -211,7 +220,7 @@ export async function POST(req: NextRequest) {
             llmMessages.push({ role: "assistant", content: result.text });
             llmMessages.push({
               role: "user",
-              content: `Error: unknown tool "${tc.tool}". Available tools: web_search, read_page, calculator, run_js, get_datetime, system_status, hud_action. Answer directly or use a valid tool.`,
+              content: `Error: unknown tool "${tc.tool}". Available tools: web_search, read_page, calculator, run_js, get_datetime, system_status, pc_control, hud_action. Answer directly or use a valid tool.`,
             });
             continue;
           }

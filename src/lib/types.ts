@@ -390,8 +390,14 @@ export const AGENT_TOOLS: ToolMeta[] = [
   {
     name: "system_status",
     label: "Statut de la machine",
-    description: "Interroge la machine hôte : CPU, mémoire, uptime, système. Comme JARVIS surveille l'Iron Man suit.",
+    description: "Interroge la machine hôte : CPU, mémoire, uptime et système.",
     icon: "activity",
+  },
+  {
+    name: "pc_control",
+    label: "Contrôle PC",
+    description: "Ouvre localement une application sûre, un dossier connu ou une URL sur le PC Windows.",
+    icon: "monitor",
   },
   {
     name: "hud_action",

@@ -5,10 +5,12 @@ import dynamicImport from "next/dynamic";
 import {
   ArrowDown,
   ChevronDown,
+  Command,
   Loader2,
   Menu,
   Radio,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Zap,
 } from "lucide-react";
@@ -29,8 +31,11 @@ import { Welcome } from "@/components/chat/welcome";
 import { Composer } from "@/components/chat/composer";
 import { SettingsDialog } from "@/components/chat/settings-dialog";
 import { ThemeToggle } from "@/components/chat/theme-toggle";
+import { CommandPalette } from "@/components/jarvis/CommandPalette";
+import { ControlCenter } from "@/components/jarvis/ControlCenter";
 import { useHuggingAgent } from "@/hooks/use-hugging-agent";
 import { useJarvisVoice } from "@/hooks/use-jarvis-voice";
+import { useHandsFreeSpeech } from "@/hooks/use-hands-free-speech";
 import {
   ArcReactor,
   BootSequence,
@@ -43,8 +48,8 @@ import {
 import { HF_MODELS, STARK_MODELS, isStarkModel, modelLabel, HUD_EVENT, type HudAction, type SystemStatus, type UpdateSettingsPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// PERF : le lien neural (gros moteur canvas) est chargé à la demande,
-// uniquement quand l'utilisateur veut parler à JARVIS.
+// Le HUD vocal plein écran est chargé à la demande,
+// uniquement quand l'utilisateur veut parler à J.A.R.V.I.S.
 const NeuralLink = dynamicImport(
   () => import("@/components/jarvis/NeuralLink").then((m) => ({ default: m.NeuralLink })),
   {
@@ -142,22 +147,32 @@ function EngineBadge({
 export default function Page() {
   const agent = useHuggingAgent();
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [controlCenterOpen, setControlCenterOpen] = React.useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [modelSelectOpen, setModelSelectOpen] = React.useState(false);
-  const [booting, setBooting] = React.useState(true);
+  const [booting, setBooting] = React.useState(false);
 
-  // PERF : la séquence de boot (≈ 3,8 s) ne joue qu'une fois par session —
-  // les rechargements suivants ouvrent l'interface instantanément.
   React.useEffect(() => {
+    let shouldBoot = true;
+
     try {
-      if (sessionStorage.getItem(BOOT_KEY) === "1") {
-        setBooting(false);
-        return;
+      shouldBoot = sessionStorage.getItem(BOOT_KEY) !== "1";
+      if (shouldBoot) {
+        sessionStorage.setItem(BOOT_KEY, "1");
       }
-      sessionStorage.setItem(BOOT_KEY, "1");
     } catch {
-      /* stockage indisponible : boot normal */
+      // Le stockage de session peut être indisponible dans certains contextes.
     }
+
+    if (!shouldBoot) return;
+
+    setBooting(true);
+    const watchdog = window.setTimeout(() => setBooting(false), 6000);
+
+    return () => {
+      window.clearTimeout(watchdog);
+    };
   }, []);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const atBottomRef = React.useRef(true);
@@ -176,10 +191,17 @@ export default function Page() {
       }
     };
     void load();
-    const t = setInterval(load, 15000);
+
+    const poll = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const t = window.setInterval(poll, 30000);
+    document.addEventListener("visibilitychange", poll);
+
     return () => {
       alive = false;
-      clearInterval(t);
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", poll);
     };
   }, []);
 
@@ -237,8 +259,20 @@ export default function Page() {
     },
   });
 
+  const handsFree = useHandsFreeSpeech({
+    lang: "fr-FR",
+    silenceMs: 1100,
+    onUtterance: (text) => {
+      void runVoiceTurnRef.current(text);
+    },
+  });
+
   const runTurn = React.useCallback(
     async (text: string, spoken: boolean) => {
+      if (voiceModeRef.current && handsFree.supported && handsFree.enabled) {
+        handsFree.pause();
+      }
+
       setLastTranscript(text);
       setSpokenText(null);
       const st = settingsRef.current;
@@ -286,13 +320,16 @@ export default function Page() {
         suppressRelistenRef.current = false;
         return;
       }
-      if (voiceModeRef.current && voice.micState === "idle" && !voice.micError) {
-        // pas de ré-écoute automatique si le micro vient d'échouer
-        // (évite un toast d'erreur après chaque réponse dans un aperçu intégré)
-        void voice.startListening();
+      if (voiceModeRef.current) {
+        if (handsFree.supported && handsFree.enabled) {
+          handsFree.resume();
+        } else if (voice.micState === "idle" && !voice.micError) {
+          // Fallback : ancien pipeline enregistrement -> ASR serveur.
+          void voice.startListening();
+        }
       }
     },
-    [agent, voice]
+    [agent, handsFree, voice]
   );
 
   React.useEffect(() => {
@@ -311,53 +348,169 @@ export default function Page() {
   const openNeural = React.useCallback(() => {
     setNeuralOpen(true);
     setVoiceMode(true);
-    if (voice.micState === "idle" && !agent.streaming) {
+
+    if (agent.streaming) return;
+
+    if (handsFree.supported) {
+      handsFree.start();
+    } else if (voice.micState === "idle") {
       void voice.startListening();
     }
-  }, [voice, agent.streaming]);
+  }, [agent.streaming, handsFree, voice]);
 
   const handleMicToggle = React.useCallback(() => {
+    if (handsFree.supported) {
+      setNeuralOpen(true);
+      setVoiceMode(true);
+
+      if (!handsFree.enabled) {
+        handsFree.start();
+      } else if (handsFree.listening) {
+        handsFree.pause();
+      } else if (!agent.streaming && !voice.speaking) {
+        handsFree.resume();
+      }
+      return;
+    }
+
     if (voice.micState === "listening") {
       void voice.stopListening();
     } else if (voice.micState === "idle" && !agent.streaming) {
-      // Ouvre le lien neural plein écran pour parler à JARVIS
       openNeural();
     }
-  }, [voice, agent.streaming, openNeural]);
+  }, [agent.streaming, handsFree, openNeural, voice]);
 
   const handleVoiceModeChange = React.useCallback(
     (enabled: boolean) => {
       setVoiceMode(enabled);
+
       if (!enabled) {
+        handsFree.stop();
         voice.cancelListening();
         voice.stopSpeaking();
-      } else if (voice.micState === "idle" && !agent.streaming) {
+        return;
+      }
+
+      if (agent.streaming || voice.speaking) return;
+
+      if (handsFree.supported) {
+        handsFree.start();
+      } else if (voice.micState === "idle") {
         void voice.startListening();
       }
     },
-    [voice, agent.streaming]
+    [agent.streaming, handsFree, voice]
   );
 
   const handleStop = React.useCallback(() => {
     suppressRelistenRef.current = true;
     agent.stop();
+    handsFree.stop();
     voice.stopSpeaking();
     voice.cancelListening();
-  }, [agent, voice]);
+  }, [agent, handsFree, voice]);
+
+  // Raccourcis façon "command center" : rapides, mais jamais destructifs.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+
+      if ((event.ctrlKey || event.metaKey) && event.key === ",") {
+        event.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === ".") {
+        event.preventDefault();
+        setControlCenterOpen(true);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        handleVoiceModeChange(!voiceModeRef.current);
+        return;
+      }
+
+      if (!editing && event.key === "/") {
+        event.preventDefault();
+        document.getElementById("composer-input")?.focus();
+        return;
+      }
+
+      if (
+        event.key === "Escape" &&
+        (agent.streaming || voice.speaking) &&
+        !settingsOpen &&
+        !controlCenterOpen &&
+        !commandPaletteOpen
+      ) {
+        handleStop();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    agent.streaming,
+    commandPaletteOpen,
+    controlCenterOpen,
+    handleStop,
+    handleVoiceModeChange,
+    settingsOpen,
+    voice.speaking,
+  ]);
+
+  // Si une réponse se termine pendant que l'onglet est caché, J.A.R.V.I.S.
+  // peut prévenir l'utilisateur — uniquement si la permission a déjà été accordée.
+  const wasStreamingRef = React.useRef(false);
+  React.useEffect(() => {
+    const justFinished = wasStreamingRef.current && !agent.streaming;
+    wasStreamingRef.current = agent.streaming;
+
+    if (
+      justFinished &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted" &&
+      document.visibilityState !== "visible"
+    ) {
+      new Notification("J.A.R.V.I.S.", {
+        body: "Votre réponse est prête.",
+        icon: "/jarvis-icon.svg",
+      });
+    }
+  }, [agent.streaming]);
 
   const closeNeural = React.useCallback(() => {
     setNeuralOpen(false);
     setVoiceMode(false);
+    handsFree.stop();
     voice.cancelListening();
-  }, [voice]);
+  }, [handsFree, voice]);
 
   const handleNeuralMic = React.useCallback(() => {
+    if (handsFree.supported) {
+      if (!handsFree.enabled) {
+        handsFree.start();
+      } else if (handsFree.listening) {
+        handsFree.pause();
+      } else if (!agent.streaming && !voice.speaking) {
+        handsFree.resume();
+      }
+      return;
+    }
+
     if (voice.micState === "listening") {
       void voice.stopListening();
     } else if (voice.micState === "idle" && !agent.streaming) {
       void voice.startListening();
     }
-  }, [voice, agent.streaming]);
+  }, [agent.streaming, handsFree, voice]);
 
   const handleNeuralSend = React.useCallback(
     (text: string) => {
@@ -370,10 +523,23 @@ export default function Page() {
     openNeural();
   }, [openNeural]);
 
+  // ---- État vocal effectif : mains libres prioritaire, ASR serveur en fallback ----
+  const effectiveMicState =
+    handsFree.processing
+      ? ("transcribing" as const)
+      : handsFree.listening
+        ? ("listening" as const)
+        : voice.micState;
+
+  const liveTranscript =
+    handsFree.transcript.trim() || lastTranscript || null;
+
+  const voiceInputSupported = handsFree.supported || micSupported;
+
   // ---- État visuel du réacteur / statut ----
   const reactorState: ReactorState = voice.speaking
     ? "speaking"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "listening"
       : agent.streaming
         ? "thinking"
@@ -381,7 +547,7 @@ export default function Page() {
 
   const waveState: "idle" | "listening" | "speaking" = voice.speaking
     ? "speaking"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "listening"
       : agent.streaming
         ? "speaking"
@@ -392,38 +558,38 @@ export default function Page() {
 
   const neuralPhase: NeuralPhase = voice.speaking
     ? "speaking"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "listening"
-      : voice.micState === "transcribing"
-        ? "transcribing"
-        : agent.streaming
-          ? "thinking"
+      : agent.streaming
+        ? "thinking"
+        : effectiveMicState === "transcribing"
+          ? "transcribing"
           : "idle";
 
   const statusShort = voice.speaking
     ? "ÉLOCUTION"
-    : voice.micState === "listening"
+    : effectiveMicState === "listening"
       ? "ÉCOUTE"
-      : voice.micState === "transcribing"
-        ? "TRANSCRIPTION"
-        : agent.streaming
-          ? "TRAITEMENT"
+      : agent.streaming
+        ? "TRAITEMENT"
+        : effectiveMicState === "transcribing"
+          ? "TRANSCRIPTION"
           : "EN LIGNE";
 
   const statusLong = voice.speaking
     ? "À VOTRE SERVICE, MONSIEUR"
-    : voice.micState === "listening"
-      ? "JE VOUS ÉCOUTE, MONSIEUR"
-      : voice.micState === "transcribing"
-        ? "ANALYSE DE LA VOIX…"
-        : agent.streaming
-          ? "TRAITEMENT DES DONNÉES…"
-          : "SYSTÈMES NOMINAUX";
+    : effectiveMicState === "listening"
+      ? "TRANSCRIPTION TEMPS RÉEL — JE VOUS ÉCOUTE"
+      : agent.streaming
+        ? "ANALYSE MULTI-SYSTÈME EN COURS…"
+        : effectiveMicState === "transcribing"
+          ? "PHRASE REÇUE — INTERPRÉTATION…"
+          : "SYSTÈMES NOMINAUX — EN ATTENTE D’INSTRUCTIONS";
 
   const messages = agent.messages;
   const lastMessage = messages[messages.length - 1];
   const voiceStripVisible =
-    voiceMode || voice.micState !== "idle" || voice.speaking || agent.streaming;
+    voiceMode || effectiveMicState !== "idle" || voice.speaking || agent.streaming;
 
   // Auto-scroll (si l'utilisateur est déjà en bas)
   React.useEffect(() => {
@@ -511,7 +677,7 @@ export default function Page() {
             <ArcReactor size={26} state={reactorState} />
             <div className="leading-tight">
               <p className="glow-text text-sm font-bold tracking-[0.18em] text-primary">J.A.R.V.I.S.</p>
-              <p className="hud-label">AGENT VOCAL STARK</p>
+              <p className="hud-label">ASSISTANT EMBARQUÉ</p>
             </div>
           </div>
           {sidebar}
@@ -538,7 +704,7 @@ export default function Page() {
                   <ArcReactor size={26} state={reactorState} />
                   <div className="leading-tight">
                     <p className="glow-text text-sm font-bold tracking-[0.18em] text-primary">J.A.R.V.I.S.</p>
-                    <p className="hud-label">AGENT VOCAL STARK</p>
+                    <p className="hud-label">ASSISTANT EMBARQUÉ</p>
                   </div>
                 </div>
                 {sidebar}
@@ -582,7 +748,7 @@ export default function Page() {
 
             <div className="ml-auto flex items-center gap-1.5">
               {/* Sélecteur de modèle */}
-              <div className="flex items-center">
+              <div className="hidden items-center sm:flex">
                 <Select
                   value={modelIsKnown ? currentModel : "__custom__"}
                   onValueChange={(v) => void handleModelChange(v)}
@@ -641,6 +807,26 @@ export default function Page() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="hidden h-9 w-9 text-primary/80 hover:text-primary sm:inline-flex"
+                aria-label="Palette de commandes"
+                title="Palette de commandes (Ctrl+K)"
+                onClick={() => setCommandPaletteOpen(true)}
+              >
+                <Command className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-primary/80 hover:text-primary"
+                aria-label="Control Center"
+                title="Capacités et permissions (Ctrl+.)"
+                onClick={() => setControlCenterOpen(true)}
+              >
+                <ShieldCheck className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 className="h-9 w-9 text-primary/80 hover:text-primary"
                 aria-label="Réglages"
                 onClick={() => setSettingsOpen(true)}
@@ -690,7 +876,7 @@ export default function Page() {
               <Welcome
                 onPick={handleSend}
                 onVoice={startVoiceFromWelcome}
-                micSupported={micSupported}
+                micSupported={voiceInputSupported}
                 embedded={embedded}
               />
             ) : (
@@ -757,8 +943,8 @@ export default function Page() {
                 onSend={handleSend}
                 onStop={handleStop}
                 busy={agent.streaming}
-                micState={voice.micState}
-                micSupported={micSupported}
+                micState={effectiveMicState}
+                micSupported={voiceInputSupported}
                 onMicToggle={handleMicToggle}
                 speaking={voice.speaking}
                 voiceMode={voiceMode}
@@ -784,7 +970,7 @@ export default function Page() {
         {/* ---- Rail télémétrie (desktop large) ---- */}
         <aside className="hidden w-[228px] shrink-0 border-l border-primary/15 bg-sidebar/40 p-3 backdrop-blur xl:block">
           <div className="mb-3 flex items-center justify-between px-1">
-            <span className="hud-label">TÉLÉMÉTRIE STARK</span>
+            <span className="hud-label">SYSTÈMES EMBARQUÉS</span>
             <EngineBadge
               hasToken={!!agent.settings?.hasToken}
               engine={agent.settings?.engine ?? "auto"}
@@ -801,14 +987,14 @@ export default function Page() {
         <NeuralLink
           open={neuralOpen}
           phase={neuralPhase}
-          micState={voice.micState}
-          micSupported={micSupported}
+          micState={effectiveMicState}
+          micSupported={voiceInputSupported}
           micError={voice.micError}
           micAnalyser={voice.micAnalyser}
           speakAnalyser={voice.speakAnalyser}
-          transcript={lastTranscript}
+          transcript={liveTranscript}
           responseText={spokenText}
-          statusText={agent.statusText}
+          statusText={handsFree.error ?? agent.statusText}
           streaming={agent.streaming}
           speaking={voice.speaking}
           onClose={closeNeural}
@@ -825,6 +1011,34 @@ export default function Page() {
         settings={agent.settings}
         onSave={agent.saveSettings}
         onTest={agent.testConnection}
+      />
+
+      <ControlCenter
+        open={controlCenterOpen}
+        onOpenChange={setControlCenterOpen}
+        systemStatus={systemStatus}
+        onNewConversation={() => {
+          agent.newConversation();
+          setControlCenterOpen(false);
+        }}
+        onOpenSettings={() => {
+          setControlCenterOpen(false);
+          setSettingsOpen(true);
+        }}
+        voiceMode={voiceMode}
+        onToggleVoice={() => handleVoiceModeChange(!voiceMode)}
+      />
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onNewConversation={() => agent.newConversation()}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenControlCenter={() => setControlCenterOpen(true)}
+        onToggleVoice={() => handleVoiceModeChange(!voiceMode)}
+        onStop={handleStop}
+        busy={agent.streaming || voice.speaking}
+        voiceMode={voiceMode}
       />
     </div>
   );

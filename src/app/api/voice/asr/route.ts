@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
+import { requireAuthorized } from "@/lib/server/auth";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -7,6 +9,10 @@ export const maxDuration = 120;
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024; // 20 Mo
 
 export async function POST(req: NextRequest) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
+  const limited = enforceRateLimit(req, { name: "voice-asr", limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const body = (await req.json()) as { audio?: string };
     const audio = typeof body.audio === "string" ? body.audio.trim() : "";

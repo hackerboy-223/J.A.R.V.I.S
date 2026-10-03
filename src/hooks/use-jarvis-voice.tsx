@@ -178,7 +178,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
   const voicesReadyRef = React.useRef<Promise<void> | null>(null);
 
   /** Attend le chargement des voix du navigateur (une fois, ≤ 800 ms). */
-  const ensureVoicesReady = (): Promise<void> => {
+  const ensureVoicesReady = React.useCallback((): Promise<void> => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return Promise.resolve();
     }
@@ -198,10 +198,10 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
       });
     }
     return voicesReadyRef.current;
-  };
+  }, []);
 
   /** Meilleure voix française du navigateur (enregistée > Google > locales). */
-  const pickBrowserVoice = (): SpeechSynthesisVoice | null => {
+  const pickBrowserVoice = React.useCallback((): SpeechSynthesisVoice | null => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
     const voices = window.speechSynthesis.getVoices();
     if (!voices.length) return null;
@@ -215,7 +215,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
     const score = (v: SpeechSynthesisVoice) =>
       v.name.includes("Google") ? 4 : /am[eé]lie|audrey|thomas|denise|marie|henri|pauline/i.test(v.name) ? 3 : v.lang === "fr-FR" ? 2 : 1;
     return fr.slice().sort((a, b) => score(b) - score(a))[0] ?? null;
-  };
+  }, []);
 
   const getCtx = (): AudioContext => {
     if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
@@ -349,13 +349,17 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
     }
   }, [micState]);
 
-  const cleanupMic = () => {
-    stopLevelMeter();
+  const cleanupMic = React.useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    levelRef.current = 0;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     recorderRef.current = null;
     setMicAnalyser(null);
-  };
+  }, []);
 
   /** Stop et transcription. Si cancelled → abandon silencieux. */
   const stopListening = React.useCallback(async (): Promise<void> => {
@@ -427,7 +431,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
     } finally {
       setMicState("idle");
     }
-  }, [micState, onTranscript]);
+  }, [cleanupMic, micState, onTranscript]);
 
   /** Annule l'écoute en cours sans transcrire */
   const cancelListening = React.useCallback(() => {
@@ -618,7 +622,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
   // ---- Moteur vocal navigateur : voix françaises natives ----
 
   /** Énonce un segment via speechSynthesis (résout à la fin ou à l'interruption). */
-  const speakBrowserSegment = (text: string, gen: number): Promise<void> => {
+  const speakBrowserSegment = React.useCallback((text: string, gen: number): Promise<void> => {
     return new Promise<void>((resolve) => {
       const synth = window.speechSynthesis;
       const u = new SpeechSynthesisUtterance(text);
@@ -643,7 +647,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
       u.onerror = () => resolve();
       synth.speak(u);
     });
-  };
+  }, [pickBrowserVoice]);
 
   /** File d'élocution version navigateur (voix natives, sans AnalyserNode). */
   const drainBrowserQueue = React.useCallback(async () => {
@@ -671,7 +675,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
         done?.();
       }
     }
-  }, []);
+  }, [speakBrowserSegment]);
 
   /** Enfile un segment de texte (une phrase) — synthétisé/lu dès que possible */
   const pushStream = React.useCallback(
@@ -690,7 +694,7 @@ export function useJarvisVoice({ onTranscript }: UseJarvisVoiceOptions) {
         void drainQueue();
       }
     },
-    [drainQueue, drainBrowserQueue]
+    [drainQueue, drainBrowserQueue, ensureVoicesReady, pickBrowserVoice]
   );
 
   /** Clôt la session : attend que la file soit vide et lue intégralement. */

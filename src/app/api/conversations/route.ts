@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import type { ConversationSummary } from "@/lib/types";
+import { requireAuthorized } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
   try {
     const rows = await db.conversation.findMany({
       orderBy: { updatedAt: "desc" },

@@ -4,14 +4,18 @@
   "description": "J.A.R.V.I.S. — Assistant IA vocal façon Iron Man, propulsé par GLM (Z.ai) et Hugging Face",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
+    "dev": "node scripts/ensure-local-env.mjs && prisma generate && prisma db push && next dev -p 3000",
+    "build": "prisma generate && next build && node scripts/copy-standalone.mjs",
+    "start": "node scripts/start-standalone.mjs",
     "lint": "eslint .",
-    "db:push": "prisma db push --accept-data-loss",
+    "db:push": "node scripts/ensure-local-env.mjs && prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "typecheck": "prisma generate && tsc --noEmit",
+    "check": "bun run lint && bun run typecheck && bun run build",
+    "postinstall": "prisma generate",
+    "db:sync": "node scripts/ensure-local-env.mjs && prisma db push"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -59,7 +63,7 @@
     "framer-motion": "^12.23.2",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.525.0",
-    "next": "^16.1.1",
+    "next": "^16.3.8",
     "next-auth": "^4.24.11",
     "next-intl": "^4.3.4",
     "next-themes": "^0.4.6",
@@ -90,7 +94,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "bun-types": "^1.3.4",
     "eslint": "^9",
-    "eslint-config-next": "^16.1.1",
+    "eslint-config-next": "^16.3.8",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"

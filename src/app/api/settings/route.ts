@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSettingsRow, toPublicSettings } from "@/lib/server/settings";
 import { TTS_VOICES } from "@/lib/types";
+import { requireAuthorized } from "@/lib/server/auth";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
+import { protectSecret } from "@/lib/server/secrets";
 
 export const runtime = "nodejs";
 
 const MAX_VOICE_URI = 200;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
   try {
     const row = await getSettingsRow();
     return NextResponse.json(toPublicSettings(row));
@@ -18,6 +23,10 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  const denied = requireAuthorized(req);
+  if (denied) return denied;
+  const limited = enforceRateLimit(req, { name: "settings-write", limit: 20, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const body = (await req.json()) as Record<string, unknown>;
     await getSettingsRow();
@@ -36,7 +45,7 @@ export async function PUT(req: NextRequest) {
             { status: 400 }
           );
         }
-        if (token) data.hfToken = token;
+        if (token) data.hfToken = protectSecret(token);
       }
     }
 
@@ -87,10 +96,18 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Aucun champ valide fourni" }, { status: 400 });
     }
 
-    const row = await db.settings.update({ where: { id: "singleton" }, data });
+    const row = await db.settings.upsert({
+      where: { id: "singleton" },
+      update: data,
+      create: { id: "singleton", ...data },
+    });
     return NextResponse.json(toPublicSettings(row));
   } catch (e) {
     console.error("[settings:PUT]", e);
-    return NextResponse.json({ error: "Échec de l'enregistrement des réglages" }, { status: 500 });
+    const detail =
+      process.env.NODE_ENV === "development" && e instanceof Error
+        ? `Échec de l'enregistrement des réglages : ${e.message}`
+        : "Échec de l'enregistrement des réglages";
+    return NextResponse.json({ error: detail }, { status: 500 });
   }
 }
