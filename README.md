@@ -28,6 +28,10 @@ J.A.R.V.I.S. est un agent conversationnel **vocal** avec une interface holograph
 - **Boot sequence** cinéma au lancement — « NOYAU : GLM 4.6 — MOTEUR STARK INTÉGRÉ »
 - **HUD corners, radar sweep, telemetry panel**, scanlines et grille holographique
 - **Lien neural** : canal vocal plein écran avec typewriter synchro voix
+- **Control Center** : permissions navigateur, capacités de l'hôte et actions locales autorisées
+- **Palette de commandes** : `Ctrl/Cmd + K` pour ouvrir rapidement un chat, la voix, les réglages ou le Control Center
+- **Recherche de conversations** dans la sidebar
+- **Notifications de fin** optionnelles quand une réponse se termine en arrière-plan
 
 ## 🛠️ Stack technique
 
@@ -69,6 +73,7 @@ JARVIS_ACCESS_PASSWORD="un-mot-de-passe-fort"
 JARVIS_SESSION_SECRET="une-longue-valeur-aleatoire-d-au-moins-32-caracteres"
 JARVIS_ENCRYPTION_KEY="une-autre-longue-valeur-aleatoire"
 JARVIS_ALLOW_RUN_JS="false"
+JARVIS_ALLOW_PC_CONTROL="false"
 ```
 
 - Les sessions utilisent un cookie **HttpOnly**, `SameSite=Strict` et signé côté serveur.
@@ -76,6 +81,8 @@ JARVIS_ALLOW_RUN_JS="false"
 - Les routes chat, conversations, réglages, voix et télémétrie nécessitent une session valide.
 - Les endpoints coûteux sont limités en fréquence.
 - `run_js` est **désactivé par défaut en production**. Ne l’activez que dans un environnement réellement isolé.
+- `pc_control` est **opt-in** via `JARVIS_ALLOW_PC_CONTROL=true` et reste limité à une liste fermée d'actions non destructives.
+- Le **Control Center** n'accorde aucune permission sensible automatiquement : micro, notifications et stockage persistant restent déclenchés par un geste utilisateur.
 - Le health-check public `/api` ne révèle plus le nom d’hôte, le CPU, la RAM ou la version du système.
 
 > **Important — dépendances :** avant tout déploiement public, utilisez une version Next.js corrigée par les dernières publications de sécurité et régénérez `bun.lock` avec Bun. Le lockfile ne doit jamais être modifié à la main.
@@ -92,6 +99,7 @@ Voir également [SECURITY.md](./SECURITY.md).
 | `run_js` | Exécute du JavaScript côté serveur (sandbox) |
 | `get_datetime` | Date et heure du système |
 | `system_status` | Diagnostic complet de la machine (CPU, RAM, réseau…) |
+| `pc_control` | Ouvre uniquement les applications/dossiers Windows explicitement autorisés |
 | `hud_action` | Déclenche des effets HUD en direct (balayage radar, alertes…) |
 
 L'agent choisit ses outils **autonomement** selon votre demande — les résultats s'affichent dans des cartes dédiées, avec statut et durée.
@@ -115,12 +123,14 @@ src/
 │   │   ├── voice/tts/     # Synthèse vocale (découpage par phrases)
 │   │   ├── conversations/ # CRUD des conversations
 │   │   ├── settings/      # Réglages + test de connexion
+│   │   ├── capabilities/  # Capacités sûres exposées à l'interface
+│   │   ├── pc/action/     # Actions locales allowlistées + rate limit
 │   │   └── system-status/ # Diagnostic machine
 │   ├── layout.tsx / page.tsx
 │   └── manifest.ts        # PWA
 ├── components/
 │   ├── chat/              # Composer, messages, réglages, sidebar…
-│   └── jarvis/            # Réacteur Arc, lien neural, HUD, boot…
+│   └── jarvis/            # Réacteur Arc, Control Center, palette, HUD, boot…
 ├── hooks/
 │   ├── use-jarvis-voice.tsx  # Agent vocal (micro, STT, file TTS streaming)
 │   └── use-hugging-agent.ts  # Orchestration SSE de l'agent
