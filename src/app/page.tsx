@@ -410,6 +410,82 @@ export default function Page() {
     voice.cancelListening();
   }, [agent, handsFree, voice]);
 
+  // Raccourcis façon "command center" : rapides, mais jamais destructifs.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+
+      if ((event.ctrlKey || event.metaKey) && event.key === ",") {
+        event.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        setControlCenterOpen(true);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        handleVoiceModeChange(!voiceModeRef.current);
+        return;
+      }
+
+      if (!editing && event.key === "/") {
+        event.preventDefault();
+        document.getElementById("composer-input")?.focus();
+        return;
+      }
+
+      if (
+        event.key === "Escape" &&
+        (agent.streaming || voice.speaking) &&
+        !settingsOpen &&
+        !controlCenterOpen &&
+        !commandPaletteOpen
+      ) {
+        handleStop();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    agent.streaming,
+    commandPaletteOpen,
+    controlCenterOpen,
+    handleStop,
+    handleVoiceModeChange,
+    settingsOpen,
+    voice.speaking,
+  ]);
+
+  // Si une réponse se termine pendant que l'onglet est caché, J.A.R.V.I.S.
+  // peut prévenir l'utilisateur — uniquement si la permission a déjà été accordée.
+  const wasStreamingRef = React.useRef(false);
+  React.useEffect(() => {
+    const justFinished = wasStreamingRef.current && !agent.streaming;
+    wasStreamingRef.current = agent.streaming;
+
+    if (
+      justFinished &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted" &&
+      document.visibilityState !== "visible"
+    ) {
+      new Notification("J.A.R.V.I.S.", {
+        body: "Votre réponse est prête.",
+        icon: "/jarvis-icon.svg",
+      });
+    }
+  }, [agent.streaming]);
+
   const closeNeural = React.useCallback(() => {
     setNeuralOpen(false);
     setVoiceMode(false);
