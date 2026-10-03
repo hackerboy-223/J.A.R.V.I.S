@@ -57,3 +57,6 @@ prompt
 local-*
 .claude
 .z-ai-config
+
+# JARVIS Python runtime state/models/sandbox
+/data/
