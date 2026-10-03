@@ -5,10 +5,12 @@ import dynamicImport from "next/dynamic";
 import {
   ArrowDown,
   ChevronDown,
+  Command,
   Loader2,
   Menu,
   Radio,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Zap,
 } from "lucide-react";
@@ -29,6 +31,8 @@ import { Welcome } from "@/components/chat/welcome";
 import { Composer } from "@/components/chat/composer";
 import { SettingsDialog } from "@/components/chat/settings-dialog";
 import { ThemeToggle } from "@/components/chat/theme-toggle";
+import { CommandPalette } from "@/components/jarvis/CommandPalette";
+import { ControlCenter } from "@/components/jarvis/ControlCenter";
 import { useHuggingAgent } from "@/hooks/use-hugging-agent";
 import { useJarvisVoice } from "@/hooks/use-jarvis-voice";
 import { useHandsFreeSpeech } from "@/hooks/use-hands-free-speech";
@@ -143,6 +147,8 @@ function EngineBadge({
 export default function Page() {
   const agent = useHuggingAgent();
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [controlCenterOpen, setControlCenterOpen] = React.useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [modelSelectOpen, setModelSelectOpen] = React.useState(false);
   const [booting, setBooting] = React.useState(false);
@@ -185,10 +191,17 @@ export default function Page() {
       }
     };
     void load();
-    const t = setInterval(load, 15000);
+
+    const poll = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const t = window.setInterval(poll, 30000);
+    document.addEventListener("visibilitychange", poll);
+
     return () => {
       alive = false;
-      clearInterval(t);
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", poll);
     };
   }, []);
 
@@ -718,6 +731,26 @@ export default function Page() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="hidden h-9 w-9 text-primary/80 hover:text-primary sm:inline-flex"
+                aria-label="Palette de commandes"
+                title="Palette de commandes (Ctrl+K)"
+                onClick={() => setCommandPaletteOpen(true)}
+              >
+                <Command className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-primary/80 hover:text-primary"
+                aria-label="Control Center"
+                title="Capacités et permissions"
+                onClick={() => setControlCenterOpen(true)}
+              >
+                <ShieldCheck className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 className="h-9 w-9 text-primary/80 hover:text-primary"
                 aria-label="Réglages"
                 onClick={() => setSettingsOpen(true)}
@@ -902,6 +935,34 @@ export default function Page() {
         settings={agent.settings}
         onSave={agent.saveSettings}
         onTest={agent.testConnection}
+      />
+
+      <ControlCenter
+        open={controlCenterOpen}
+        onOpenChange={setControlCenterOpen}
+        systemStatus={systemStatus}
+        onNewConversation={() => {
+          agent.newConversation();
+          setControlCenterOpen(false);
+        }}
+        onOpenSettings={() => {
+          setControlCenterOpen(false);
+          setSettingsOpen(true);
+        }}
+        voiceMode={voiceMode}
+        onToggleVoice={() => handleVoiceModeChange(!voiceMode)}
+      />
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onNewConversation={() => agent.newConversation()}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenControlCenter={() => setControlCenterOpen(true)}
+        onToggleVoice={() => handleVoiceModeChange(!voiceMode)}
+        onStop={handleStop}
+        busy={agent.streaming || voice.speaking}
+        voiceMode={voiceMode}
       />
     </div>
   );
