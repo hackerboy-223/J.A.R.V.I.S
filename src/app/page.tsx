@@ -748,7 +748,7 @@ export default function Page() {
 
             <div className="ml-auto flex items-center gap-1.5">
               {/* Sélecteur de modèle */}
-              <div className="flex items-center">
+              <div className="hidden items-center sm:flex">
                 <Select
                   value={modelIsKnown ? currentModel : "__custom__"}
                   onValueChange={(v) => void handleModelChange(v)}
