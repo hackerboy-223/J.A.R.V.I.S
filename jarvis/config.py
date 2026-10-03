@@ -26,10 +26,7 @@ class Settings:
     hf_token: str = os.getenv("HF_TOKEN", os.getenv("HUGGING_FACE_HUB_TOKEN", ""))
     hf_model: str = os.getenv("JARVIS_HF_MODEL", "zai-org/GLM-5.3-Flash")
     hf_provider: str = os.getenv("JARVIS_HF_PROVIDER", "auto")
-    tavily_api_key: str = os.getenv("TAVILY_API_KEY", "").strip()
-    tavily_search_depth: str = os.getenv(
-        "JARVIS_TAVILY_SEARCH_DEPTH", "basic"
-    ).strip().lower()
+    exa_api_key: str = os.getenv("EXA_API_KEY", "").strip()
     allow_pc_control: bool = os.getenv("JARVIS_ALLOW_PC_CONTROL", "false").lower() == "true"
     confirm_safe_pc_actions: bool = os.getenv(
         "JARVIS_CONFIRM_SAFE_PC_ACTIONS", "false"
