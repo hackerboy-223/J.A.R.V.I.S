@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import faulthandler
+import platform
 import sys
 import threading
+import time
+import traceback
 from pathlib import Path
 
 from PySide6.QtCore import Signal, QObject, QTimer
@@ -582,9 +586,62 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
-def run_app() -> int:
-    app = QApplication(sys.argv)
-    app.setApplicationName("J.A.R.V.I.S.")
-    window = MainWindow()
-    window.show()
-    return app.exec()
+def run_app(*, diagnostic_seconds: float | None = None) -> int:
+    """Launch the native Qt desktop UI with visible startup diagnostics."""
+
+    try:
+        faulthandler.enable(all_threads=True)
+    except Exception:
+        pass
+
+    started = time.monotonic()
+    print(
+        f"[JARVIS] Desktop startup · Python {platform.python_version()} · "
+        f"{platform.system()} {platform.release()} · {platform.machine()}",
+        flush=True,
+    )
+
+    try:
+        print("[JARVIS] Qt: creating application…", flush=True)
+        app = QApplication.instance() or QApplication(sys.argv)
+        app.setApplicationName("J.A.R.V.I.S.")
+        app.setQuitOnLastWindowClosed(True)
+
+        print("[JARVIS] UI: constructing MainWindow…", flush=True)
+        window = MainWindow()
+
+        print("[JARVIS] UI: showing window…", flush=True)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+        if diagnostic_seconds is not None:
+            delay_ms = max(500, int(float(diagnostic_seconds) * 1000))
+
+            def _finish_diagnostic() -> None:
+                print("[JARVIS] UI doctor: event loop is alive.", flush=True)
+                window.close()
+                app.quit()
+
+            QTimer.singleShot(delay_ms, _finish_diagnostic)
+
+        print("[JARVIS] Qt event loop: running.", flush=True)
+        exit_code = int(app.exec())
+        elapsed = time.monotonic() - started
+        print(
+            f"[JARVIS] Qt event loop stopped · code={exit_code} · "
+            f"uptime={elapsed:.2f}s",
+            flush=True,
+        )
+
+        if diagnostic_seconds is None and elapsed < 1.0:
+            print(
+                "[JARVIS] WARNING: the desktop UI stopped almost immediately. "
+                "Run python -m jarvis doctor and inspect the console output.",
+                flush=True,
+            )
+        return exit_code
+    except Exception:
+        print("[JARVIS] Python exception during desktop startup:", file=sys.stderr, flush=True)
+        traceback.print_exc()
+        return 1
