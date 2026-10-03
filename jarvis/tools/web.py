@@ -3,11 +3,53 @@ from __future__ import annotations
 from html.parser import HTMLParser
 import ipaddress
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
 from jarvis.config import settings
+
+
+def _compact_snippet(text: str, limit: int) -> str:
+    clean = " ".join(str(text or "").split())
+    if len(clean) <= limit:
+        return clean
+
+    cut = clean[:limit].rstrip()
+    last_stop = max(
+        cut.rfind(". "),
+        cut.rfind("! "),
+        cut.rfind("? "),
+        cut.rfind("; "),
+    )
+    if last_stop >= int(limit * 0.55):
+        cut = cut[: last_stop + 1].rstrip()
+    else:
+        last_space = cut.rfind(" ")
+        if last_space >= int(limit * 0.7):
+            cut = cut[:last_space].rstrip()
+
+    return cut + "…"
+
+
+def _canonical_result_url(raw: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return value
+        normalized = parsed._replace(
+            scheme=parsed.scheme.lower(),
+            netloc=parsed.netloc.lower(),
+            path=parsed.path.rstrip("/") or "/",
+            fragment="",
+        )
+        return urlunparse(normalized)
+    except Exception:
+        return value
 
 
 class _TextExtractor(HTMLParser):
@@ -83,58 +125,88 @@ def web_search(args: dict) -> dict:
         },
     }
 
+    requested_count: int | None = None
     if "num" in args and args.get("num") is not None:
-        count = int(args.get("num") or 10)
-        payload["numResults"] = max(1, min(count, 10))
+        requested_count = max(1, min(int(args.get("num") or 10), 10))
+        payload["numResults"] = requested_count
 
-    response = httpx.post(
-        "https://api.exa.ai/search",
-        headers={
-            "x-api-key": settings.exa_api_key,
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=20,
-    )
+    try:
+        response = httpx.post(
+            "https://api.exa.ai/search",
+            headers={
+                "x-api-key": settings.exa_api_key,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=20,
+        )
+    except httpx.TimeoutException as exc:
+        raise RuntimeError("Exa n'a pas répondu à temps.") from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError("Connexion à Exa impossible.") from exc
 
     if response.status_code == 401:
         raise RuntimeError("Clé Exa invalide ou non autorisée.")
+    if response.status_code == 403:
+        raise RuntimeError("Accès Exa refusé pour cette clé ou ce compte.")
     if response.status_code == 429:
         raise RuntimeError(
             "Limite Exa atteinte. Réessaie plus tard ou vérifie ton quota."
         )
+    if 400 <= response.status_code < 500:
+        raise RuntimeError(f"Requête Exa refusée ({response.status_code}).")
 
     response.raise_for_status()
     data = response.json()
 
     results = []
+    seen_urls: set[str] = set()
+
     for item in data.get("results", []):
+        raw_url = str(item.get("url", "") or "").strip()
+        canonical_url = _canonical_result_url(raw_url)
+        if not canonical_url or canonical_url in seen_urls:
+            continue
+        seen_urls.add(canonical_url)
+
         highlights = item.get("highlights") or []
         if isinstance(highlights, str):
-            snippet = highlights
+            raw_snippet = highlights
         elif isinstance(highlights, list):
-            snippet = "\n".join(
+            raw_snippet = "\n".join(
                 str(part).strip()
                 for part in highlights
                 if str(part).strip()
             )
         else:
-            snippet = ""
+            raw_snippet = ""
+
+        title = str(item.get("title", "") or "").strip()
+        if not title:
+            title = urlparse(canonical_url).netloc or canonical_url
 
         results.append(
             {
-                "title": str(item.get("title", "") or ""),
-                "url": str(item.get("url", "") or ""),
-                "snippet": snippet,
+                "title": title,
+                "url": canonical_url,
+                "snippet": _compact_snippet(
+                    raw_snippet,
+                    settings.exa_snippet_chars,
+                ),
                 "published_date": item.get("publishedDate"),
                 "author": item.get("author"),
             }
         )
 
+        if requested_count is not None and len(results) >= requested_count:
+            break
+
     return {
         "query": query,
         "provider": "exa",
         "request_id": data.get("requestId"),
+        "search_time": data.get("searchTime"),
+        "cost_dollars": data.get("costDollars"),
         "results": results,
     }
 
