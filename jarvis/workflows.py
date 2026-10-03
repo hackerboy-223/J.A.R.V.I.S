@@ -158,14 +158,15 @@ class WorkflowEngine:
                 title = str(item.get("title", ""))
                 snippet = str(item.get("snippet", ""))
                 sources.append(url)
-                context = f"{title}\n{snippet}"
-                try:
-                    page = read_page({"url": url})
-                    body = str(page.get("text", ""))[:6000]
-                    if body:
-                        context += f"\n{body}"
-                except Exception:
-                    pass
+                context = f"{title}\n{snippet}".strip()
+                if not snippet:
+                    try:
+                        page = read_page({"url": url})
+                        body = str(page.get("text", ""))[:6000]
+                        if body:
+                            context = f"{title}\n{body}".strip()
+                    except Exception:
+                        pass
                 gathered.append(f"SOURCE: {url}\n{context}")
 
         progress("RESEARCH · SYNTHÈSE")
