@@ -69,32 +69,63 @@ def web_search(args: dict) -> dict:
     query = str(args.get("query", "")).strip()
     if not query:
         raise ValueError("query est requis.")
-    if not settings.serper_api_key:
-        raise RuntimeError("SERPER_API_KEY n'est pas configuré.")
+    if not settings.tavily_api_key:
+        raise RuntimeError(
+            "TAVILY_API_KEY n'est pas configuré. "
+            "Ajoute une clé Tavily tvly-... dans le fichier .env."
+        )
 
     count = int(args.get("num", 8) or 8)
     count = max(1, min(count, 10))
 
+    depth = settings.tavily_search_depth
+    if depth not in {"basic", "advanced"}:
+        depth = "basic"
+
     response = httpx.post(
-        "https://google.serper.dev/search",
-        headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
-        json={"q": query[:500], "num": count},
-        timeout=12,
+        "https://api.tavily.com/search",
+        headers={
+            "Authorization": f"Bearer {settings.tavily_api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "query": query[:500],
+            "search_depth": depth,
+            "max_results": count,
+            "topic": "general",
+            "include_answer": False,
+            "include_raw_content": False,
+        },
+        timeout=15,
     )
+
+    if response.status_code == 401:
+        raise RuntimeError("Clé Tavily invalide ou non autorisée.")
+    if response.status_code == 429:
+        raise RuntimeError(
+            "Limite Tavily atteinte. Réessaie plus tard ou attends le renouvellement du quota."
+        )
+
     response.raise_for_status()
     data = response.json()
 
     results = []
-    for item in data.get("organic", [])[:count]:
+    for item in data.get("results", [])[:count]:
         results.append(
             {
                 "title": str(item.get("title", "")),
-                "url": str(item.get("link", "")),
-                "snippet": str(item.get("snippet", "")),
+                "url": str(item.get("url", "")),
+                "snippet": str(item.get("content", "")),
+                "score": item.get("score"),
             }
         )
 
-    return {"query": query, "results": results}
+    return {
+        "query": query,
+        "provider": "tavily",
+        "search_depth": depth,
+        "results": results,
+    }
 
 
 def read_page(args: dict) -> dict:
