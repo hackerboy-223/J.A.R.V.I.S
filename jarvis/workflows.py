@@ -172,7 +172,7 @@ class WorkflowEngine:
         if not gathered:
             answer = (
                 "La recherche web n'a produit aucune source exploitable. "
-                "Vérifie SERPER_API_KEY ou reformule la demande."
+                "Vérifie EXA_API_KEY ou reformule la demande."
             )
             return WorkflowResult("research", answer, [])
 
