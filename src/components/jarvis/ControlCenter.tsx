@@ -118,23 +118,22 @@ export function ControlCenter({
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setMicrophone("unsupported");
-    } else if (navigator.permissions?.query) {
-      try {
-        const state = await navigator.permissions.query(
-          { name: "microphone" } as PermissionDescriptor
-        );
-        setMicrophone(state.state as BrowserPermission);
-      } catch {
-        setMicrophone("prompt");
-      }
     } else {
-      setMicrophone("prompt");
+      // La Permissions API ne normalise pas "microphone" de la même façon
+      // dans tous les navigateurs. On demande donc l'accès uniquement sur geste.
+      setMicrophone((current) =>
+        current === "granted" || current === "denied" ? current : "prompt"
+      );
     }
 
     if (!("Notification" in window)) {
       setNotifications("unsupported");
     } else {
-      setNotifications(Notification.permission as BrowserPermission);
+      setNotifications(
+        Notification.permission === "default"
+          ? "prompt"
+          : (Notification.permission as BrowserPermission)
+      );
     }
 
     try {
