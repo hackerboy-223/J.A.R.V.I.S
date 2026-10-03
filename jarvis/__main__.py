@@ -51,6 +51,7 @@ def main() -> int:
     serve.add_argument("--host")
     serve.add_argument("--port", type=int)
     sub.add_parser("selftest", help="Tester les nouveaux sous-systèmes sans API externe.")
+    sub.add_parser("doctor", help="Diagnostiquer le démarrage de l\'interface desktop Qt.")
 
     args = parser.parse_args(argv)
     if args.command == "serve":
@@ -58,6 +59,9 @@ def main() -> int:
     if args.command == "selftest":
         from jarvis.selftest import run as run_selftest
         return run_selftest()
+    if args.command == "doctor":
+        from jarvis.ui.main_window import run_app
+        return run_app(diagnostic_seconds=2.0)
 
     from jarvis.ui.main_window import run_app
     return run_app()
