@@ -302,6 +302,7 @@ J.A.R.V.I.S. uses Exa's native Search API for web retrieval.
 
 ```env
 EXA_API_KEY="your_exa_api_key"
+JARVIS_EXA_SNIPPET_CHARS="1800"
 ```
 
 The integration follows Exa's official `build-with-exa` skill for coding agents:
@@ -313,6 +314,10 @@ The integration follows Exa's official `build-with-exa` skill for coding agents:
 - `numResults` is sent only when J.A.R.V.I.S. intentionally requests a result count
 - no category, domain, freshness, or synthesis controls are added unless the task explicitly needs them
 - Exa highlights are normalized into the existing `snippet` field used by the agent
+- highlights are locally compacted to a configurable character budget before entering the LLM context
+- duplicate/empty URLs are removed and result URLs are canonicalized
+- Exa request ID, search time and cost metadata are preserved for diagnostics
+- Deep Research deduplicates sources across its multiple searches
 - no Exa SDK dependency is required; the project uses its existing `httpx` dependency
 
 Because J.A.R.V.I.S. already has OpenRouter as its reasoning/chat LLM, Exa is used as a retrieval tool rather than the Exa `/answer` endpoint.
