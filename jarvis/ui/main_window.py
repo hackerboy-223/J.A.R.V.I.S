@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self.mode_select.addItem("SEQUENTIAL CHAIN", "sequential")
         self.mode_select.addItem("AI DEBATE", "debate")
         self.mode_select.addItem("DEEP RESEARCH", "research")
+        self.mode_select.addItem("OPERATIVE", "operative")
         self.mode_select.setMinimumWidth(180)
         controls.addWidget(self.mode_select)
 
@@ -577,6 +578,7 @@ class MainWindow(QMainWindow):
         if self.listener is not None:
             self.listener.shutdown()
         self.speaker.stop()
+        self.agent.shutdown()
         event.accept()
 
 
