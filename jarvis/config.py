@@ -31,6 +31,34 @@ class Settings:
         400,
         min(6000, int(os.getenv("JARVIS_EXA_SNIPPET_CHARS", "1800"))),
     )
+    workspace_root: Path = Path(
+        os.getenv("JARVIS_WORKSPACE_ROOT", str(ROOT))
+    ).expanduser().resolve()
+    skills_dir: Path = Path(
+        os.getenv("JARVIS_SKILLS_DIR", str(ROOT / "skills"))
+    ).expanduser().resolve()
+    mcp_config_path: Path = Path(
+        os.getenv("JARVIS_MCP_CONFIG", str(DATA_DIR / "mcp.json"))
+    ).expanduser().resolve()
+    scheduler_enabled: bool = os.getenv(
+        "JARVIS_SCHEDULER_ENABLED", "true"
+    ).lower() == "true"
+    embedding_base_url: str = os.getenv(
+        "JARVIS_EMBEDDING_BASE_URL", ""
+    ).strip()
+    embedding_api_key: str = os.getenv(
+        "JARVIS_EMBEDDING_API_KEY", ""
+    ).strip()
+    embedding_model: str = os.getenv(
+        "JARVIS_EMBEDDING_MODEL", ""
+    ).strip()
+    hybrid_dense_weight: float = max(
+        0.0,
+        min(1.0, float(os.getenv("JARVIS_HYBRID_DENSE_WEIGHT", "0.35"))),
+    )
+    api_host: str = os.getenv("JARVIS_API_HOST", "127.0.0.1").strip()
+    api_port: int = int(os.getenv("JARVIS_API_PORT", "8000"))
+    api_token: str = os.getenv("JARVIS_API_TOKEN", "").strip()
     allow_pc_control: bool = os.getenv("JARVIS_ALLOW_PC_CONTROL", "false").lower() == "true"
     confirm_safe_pc_actions: bool = os.getenv(
         "JARVIS_CONFIRM_SAFE_PC_ACTIONS", "false"
