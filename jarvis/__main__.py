@@ -38,10 +38,14 @@ def main() -> int:
     serve = sub.add_parser("serve", help="Lancer l'API locale OpenAI-compatible.")
     serve.add_argument("--host", default=settings.api_host)
     serve.add_argument("--port", type=int, default=settings.api_port)
+    sub.add_parser("selftest", help="Tester les nouveaux sous-systèmes sans API externe.")
 
     args = parser.parse_args()
     if args.command == "serve":
         return _serve(args.host, args.port)
+    if args.command == "selftest":
+        from jarvis.selftest import run as run_selftest
+        return run_selftest()
 
     from jarvis.ui.main_window import run_app
     return run_app()
