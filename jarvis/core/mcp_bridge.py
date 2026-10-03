@@ -60,7 +60,7 @@ class MCPManager:
                 env[str(key)] = text
         return env
 
-    async def _client_for(self, name: str):
+    def _client_for(self, name: str):
         from mcp import Client, StdioServerParameters
 
         cfg = self._server(name)
@@ -84,7 +84,7 @@ class MCPManager:
         raise ValueError(f"Transport MCP non supporté : {transport}")
 
     async def _list_tools_async(self, server: str) -> dict[str, Any]:
-        client_cm = await self._client_for(server)
+        client_cm = self._client_for(server)
         async with client_cm as client:
             page = await client.list_tools()
             tools = []
@@ -104,7 +104,7 @@ class MCPManager:
         tool: str,
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
-        client_cm = await self._client_for(server)
+        client_cm = self._client_for(server)
         async with client_cm as client:
             result = await client.call_tool(tool, arguments)
             texts = []
