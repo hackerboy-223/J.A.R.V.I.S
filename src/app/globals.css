@@ -873,3 +873,29 @@
     animation: none !important;
   }
 }
+
+
+/* ============================================================
+   J.A.R.V.I.S. — PERFORMANCE LONGUES CONVERSATIONS
+   Les messages hors écran conservent une taille intrinsèque
+   mais leur contenu n'est rendu qu'à l'approche du viewport.
+   ============================================================ */
+.jarvis-message-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 148px;
+}
+
+/* Sur mobile, conserver l'identité HUD sans multiplier les couches coûteuses. */
+@media (max-width: 640px) {
+  .hud-scanlines {
+    opacity: 0.42;
+  }
+
+  .hud-grid {
+    background-size: 56px 56px;
+  }
+
+  .jarvis-command-stage::before {
+    opacity: 0.24;
+  }
+}
