@@ -19,7 +19,7 @@ import {
   RefreshCw,
   Settings2,
   ShieldCheck,
-  TerminalSquare,
+  SquareTerminal,
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -367,7 +367,7 @@ export function ControlCenter({
                 <p className="text-sm font-semibold">Actions locales autorisées</p>
                 <p className="text-xs text-muted-foreground">Liste fermée, réversible, sans shell arbitraire.</p>
               </div>
-              <TerminalSquare className="h-4 w-4 text-primary" />
+              <SquareTerminal className="h-4 w-4 text-primary" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" disabled={!server?.pcControl.available} onClick={() => void pcAction("open_app", "calculator", "Calculatrice")} className="justify-start gap-2">
