@@ -91,7 +91,10 @@ class JarvisAgent:
         self.tools.register(
             Tool(
                 name="web_search",
-                description="Search the public web for recent information through Serper.",
+                description=(
+                    "Search the public web for recent information through Tavily. "
+                    "Use it when current or external information is needed."
+                ),
                 fn=web_search,
                 parameters={
                     "type": "object",
