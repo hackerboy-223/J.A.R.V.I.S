@@ -185,7 +185,7 @@ Recent prior work is injected back into the agent context when useful.
 
 Standard mode now exposes:
 
-- `web_search` — Serper-backed web search
+- `web_search` — Exa semantic web search
 - `read_page` — public page reader with private/local network blocking
 - `knowledge_search`
 - `remember_fact`
@@ -195,7 +195,7 @@ Standard mode now exposes:
 Deep Research requires:
 
 ```env
-SERPER_API_KEY="..."
+EXA_API_KEY="..."
 ```
 
 The page reader validates redirect targets to prevent redirects into localhost/private network ranges.
@@ -296,16 +296,23 @@ Behavior:
 The Groq request includes `language=fr`, temperature 0 and a small vocabulary prompt for common
 J.A.R.V.I.S. project terms.
 
+## Exa web search
 
-## Tavily web search
-
-J.A.R.V.I.S. uses Tavily for public web search.
+J.A.R.V.I.S. uses Exa's native Search API for web retrieval.
 
 ```env
-TAVILY_API_KEY="tvly-..."
-JARVIS_TAVILY_SEARCH_DEPTH="basic"
+EXA_API_KEY="your_exa_api_key"
 ```
 
-`basic` is the recommended default for the free plan because it uses fewer Tavily credits.
-The web tool calls Tavily directly through HTTPS; no additional Python SDK is required.
-Search results are normalized to title, URL, snippet and score before being returned to the agent.
+The integration follows Exa's official `build-with-exa` skill for coding agents:
+
+- endpoint: `POST https://api.exa.ai/search`
+- authentication: `x-api-key: $EXA_API_KEY`
+- search type: `auto`
+- content extraction: `contents: {"highlights": true}`
+- `numResults` is sent only when J.A.R.V.I.S. intentionally requests a result count
+- no category, domain, freshness, or synthesis controls are added unless the task explicitly needs them
+- Exa highlights are normalized into the existing `snippet` field used by the agent
+- no Exa SDK dependency is required; the project uses its existing `httpx` dependency
+
+Because J.A.R.V.I.S. already has OpenRouter as its reasoning/chat LLM, Exa is used as a retrieval tool rather than the Exa `/answer` endpoint.
