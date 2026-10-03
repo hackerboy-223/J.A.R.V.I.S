@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "example-stdio": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@example/mcp-server"],
+      "env": {
+        "EXAMPLE_API_KEY": "${EXAMPLE_API_KEY}"
+      }
+    },
+    "example-remote": {
+      "transport": "http",
+      "url": "https://example.com/mcp"
+    }
+  }
+}

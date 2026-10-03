@@ -57,3 +57,15 @@ prompt
 local-*
 .claude
 .z-ai-config
+
+# JARVIS Python runtime state/models/sandbox
+/data/
+
+# Python environments, tests, and packaged builds
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+/build/
+/dist/
