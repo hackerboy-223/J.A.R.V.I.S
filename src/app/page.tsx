@@ -425,7 +425,7 @@ export default function Page() {
         return;
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "p") {
+      if ((event.ctrlKey || event.metaKey) && event.key === ".") {
         event.preventDefault();
         setControlCenterOpen(true);
         return;
@@ -819,7 +819,7 @@ export default function Page() {
                 size="icon"
                 className="h-9 w-9 text-primary/80 hover:text-primary"
                 aria-label="Control Center"
-                title="Capacités et permissions"
+                title="Capacités et permissions (Ctrl+.)"
                 onClick={() => setControlCenterOpen(true)}
               >
                 <ShieldCheck className="h-4 w-4" />
