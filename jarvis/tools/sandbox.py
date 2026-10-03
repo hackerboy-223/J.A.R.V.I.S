@@ -71,7 +71,14 @@ SAFE_BUILTINS = {
         "reversed", "round", "set", "sorted", "str", "sum", "tuple", "zip"
     )
 }
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    root = name.split(".", 1)[0]
+    if root not in ["math","statistics","decimal","fractions","json","re","datetime","collections","itertools","functools"]:
+        raise ImportError(f"Import interdit dans le sandbox : {root}")
+    return builtins.__import__(name, globals, locals, fromlist, level)
+
 SAFE_BUILTINS["Exception"] = Exception
+SAFE_BUILTINS["__import__"] = _safe_import
 SAFE_GLOBALS = {
     "__builtins__": SAFE_BUILTINS,
     "math": math,
