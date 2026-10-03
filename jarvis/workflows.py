@@ -144,6 +144,7 @@ class WorkflowEngine:
 
         gathered: list[str] = []
         sources: list[str] = []
+        seen_sources: set[str] = set()
 
         for index, query in enumerate(queries, start=1):
             progress(f"RESEARCH · SEARCH {index}/{len(queries)}")
@@ -154,19 +155,39 @@ class WorkflowEngine:
                 continue
 
             for item in search.get("results", [])[:3]:
-                url = str(item.get("url", ""))
-                title = str(item.get("title", ""))
-                snippet = str(item.get("snippet", ""))
+                url = str(item.get("url", "")).strip()
+                if not url or url in seen_sources:
+                    continue
+                seen_sources.add(url)
                 sources.append(url)
-                context = f"{title}\n{snippet}".strip()
+
+                title = str(item.get("title", "")).strip()
+                snippet = str(item.get("snippet", "")).strip()
+                author = str(item.get("author") or "").strip()
+                published = str(item.get("published_date") or "").strip()
+
+                metadata = []
+                if author:
+                    metadata.append(f"Auteur: {author}")
+                if published:
+                    metadata.append(f"Date: {published}")
+
+                context_parts = [title]
+                if metadata:
+                    context_parts.append(" · ".join(metadata))
+                if snippet:
+                    context_parts.append(snippet)
+
                 if not snippet:
                     try:
                         page = read_page({"url": url})
                         body = str(page.get("text", ""))[:6000]
                         if body:
-                            context = f"{title}\n{body}".strip()
+                            context_parts.append(body)
                     except Exception:
                         pass
+
+                context = "\n".join(part for part in context_parts if part).strip()
                 gathered.append(f"SOURCE: {url}\n{context}")
 
         progress("RESEARCH · SYNTHÈSE")
@@ -177,7 +198,7 @@ class WorkflowEngine:
             )
             return WorkflowResult("research", answer, [])
 
-        evidence = "\n\n".join(gathered)[:36000]
+        evidence = "\n\n".join(gathered)[:24000]
         answer = self._simple_call(
             (
                 "Tu es un analyste de recherche. Réponds uniquement à partir des sources fournies. "
