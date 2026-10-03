@@ -92,8 +92,9 @@ class JarvisAgent:
             Tool(
                 name="web_search",
                 description=(
-                    "Search the public web for recent information through Tavily. "
-                    "Use it when current or external information is needed."
+                    "Search the public web through Exa semantic search and return "
+                    "token-efficient page highlights. Use it when current or external "
+                    "information is needed."
                 ),
                 fn=web_search,
                 parameters={
