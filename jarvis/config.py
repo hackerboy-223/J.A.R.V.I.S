@@ -12,6 +12,11 @@ DATA_DIR.mkdir(exist_ok=True)
 load_dotenv(ROOT / ".env")
 
 
+def _env_path(name: str, default: Path) -> Path:
+    raw = os.getenv(name, "").strip()
+    return Path(raw or default).expanduser().resolve()
+
+
 @dataclass(frozen=True)
 class Settings:
     llm_provider: str = os.getenv("JARVIS_LLM_PROVIDER", "openrouter").strip().lower()
@@ -31,15 +36,9 @@ class Settings:
         400,
         min(6000, int(os.getenv("JARVIS_EXA_SNIPPET_CHARS", "1800"))),
     )
-    workspace_root: Path = Path(
-        os.getenv("JARVIS_WORKSPACE_ROOT", str(ROOT))
-    ).expanduser().resolve()
-    skills_dir: Path = Path(
-        os.getenv("JARVIS_SKILLS_DIR", str(ROOT / "skills"))
-    ).expanduser().resolve()
-    mcp_config_path: Path = Path(
-        os.getenv("JARVIS_MCP_CONFIG", str(DATA_DIR / "mcp.json"))
-    ).expanduser().resolve()
+    workspace_root: Path = _env_path("JARVIS_WORKSPACE_ROOT", ROOT)
+    skills_dir: Path = _env_path("JARVIS_SKILLS_DIR", ROOT / "skills")
+    mcp_config_path: Path = _env_path("JARVIS_MCP_CONFIG", DATA_DIR / "mcp.json")
     scheduler_enabled: bool = os.getenv(
         "JARVIS_SCHEDULER_ENABLED", "true"
     ).lower() == "true"
