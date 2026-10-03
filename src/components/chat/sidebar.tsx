@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Search,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -70,13 +71,32 @@ export function SidebarContent({
   const [deleteTarget, setDeleteTarget] = React.useState<ConversationSummary | null>(null);
   const [renameTarget, setRenameTarget] = React.useState<ConversationSummary | null>(null);
   const [renameValue, setRenameValue] = React.useState("");
+  const [query, setQuery] = React.useState("");
+
+  const filteredConversations = React.useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase("fr");
+    if (!normalized) return conversations;
+    return conversations.filter((conversation) =>
+      conversation.title.toLocaleLowerCase("fr").includes(normalized)
+    );
+  }, [conversations, query]);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="p-3">
+      <div className="space-y-2 p-3">
         <Button onClick={onNew} className="w-full gap-2 shadow-sm">
           <Plus className="h-4 w-4" /> Nouvelle conversation
         </Button>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Rechercher…"
+            aria-label="Rechercher une conversation"
+            className="h-8 border-primary/15 bg-primary/[0.035] pl-8 text-xs"
+          />
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-2">
@@ -88,8 +108,13 @@ export function SidebarContent({
             Aucune conversation pour le moment. Lance-toi ! ✨
           </p>
         )}
+        {conversations.length > 0 && filteredConversations.length === 0 && (
+          <p className="px-2 py-4 text-xs text-muted-foreground">
+            Aucun résultat pour « {query.trim()} ».
+          </p>
+        )}
         <ul className="space-y-0.5">
-          {conversations.map((c) => (
+          {filteredConversations.map((c) => (
             <li key={c.id}>
               <div
                 className={cn(
