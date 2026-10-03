@@ -70,7 +70,31 @@ Then:
 python main.py
 ```
 
-The first faster-whisper run may download the selected speech model.
+The first hands-free voice session downloads the French Vosk model once.
+In a packaged build it is stored under `%LOCALAPPDATA%\JARVIS\models`.
+
+## Build the Windows executable
+
+Build on Windows with Python 3.11. The output is a zipped application folder:
+`JARVIS.exe` plus its native libraries and runtime files. It is not a single-file
+portable executable; keeping the native files beside the executable avoids
+PyInstaller extraction and audio/Qt loading problems.
+
+```powershell
+python -m pip install -e ".[build]"
+python -m unittest discover -s tests -v
+python -m jarvis.selftest
+.\packaging\build-windows.ps1
+```
+
+The archive is written to `dist\JARVIS-Windows-x64.zip`. The GitHub Actions
+workflow also builds it on Windows when changes are pushed to
+`python-agent-rewrite`, and retains the downloadable build artifact for 14 days.
+
+Packaged settings and runtime data are stored in
+`%LOCALAPPDATA%\JARVIS\` (or `%APPDATA%\JARVIS\` if Local AppData is unavailable).
+Put the packaged `.env` file there; never put provider credentials in the release
+archive. `JARVIS_DATA_DIR` can override this location.
 
 ## Safety model
 
@@ -104,8 +128,9 @@ Still to migrate/build:
 - settings UI
 - provider manager
 - encrypted secret storage
-- packaging to Windows EXE
-- automated tests
+- signed Windows installer and auto-updater
+- first-run settings/permissions wizard
+- broader automated test coverage
 - migration importer for the old Prisma/SQLite data
 
 The old Next.js implementation remains in this branch history during migration so features can be

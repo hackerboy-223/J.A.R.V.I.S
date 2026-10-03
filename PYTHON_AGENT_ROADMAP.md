@@ -32,12 +32,12 @@
 - application-specific adapters
 
 ## P3 — distribution
-- PyInstaller/Nuitka build
+- [x] PyInstaller Windows build recipe and CI artifact workflow (Windows runner validation pending)
 - auto-update strategy
 - signed Windows installer
 - first-run permissions wizard
 - diagnostics and crash reports
-- tests and CI
+- [x] focused tests for packaged data paths and sandbox worker
 
 ## Permission tiers
 

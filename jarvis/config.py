@@ -3,18 +3,37 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import sys
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
-DATA_DIR.mkdir(exist_ok=True)
-load_dotenv(ROOT / ".env")
+from jarvis.paths import resolve_data_dir
+
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+ROOT = (
+    Path(sys.executable).resolve().parent
+    if IS_FROZEN
+    else Path(__file__).resolve().parent.parent
+)
+DATA_DIR = resolve_data_dir(
+    root=ROOT,
+    environ=os.environ,
+    is_frozen=IS_FROZEN,
+).expanduser().resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Packaged builds keep mutable settings under the user's profile, never beside
+# the executable or in PyInstaller's temporary extraction directory.
+load_dotenv(DATA_DIR / ".env" if IS_FROZEN else ROOT / ".env")
 
 
 def _env_path(name: str, default: Path) -> Path:
     raw = os.getenv(name, "").strip()
     return Path(raw or default).expanduser().resolve()
+
+
+DEFAULT_WORKSPACE_DIR = DATA_DIR / "workspace" if IS_FROZEN else ROOT
+DEFAULT_SKILLS_DIR = DATA_DIR / "skills" if IS_FROZEN else ROOT / "skills"
 
 
 @dataclass(frozen=True)
@@ -36,8 +55,8 @@ class Settings:
         400,
         min(6000, int(os.getenv("JARVIS_EXA_SNIPPET_CHARS", "1800"))),
     )
-    workspace_root: Path = _env_path("JARVIS_WORKSPACE_ROOT", ROOT)
-    skills_dir: Path = _env_path("JARVIS_SKILLS_DIR", ROOT / "skills")
+    workspace_root: Path = _env_path("JARVIS_WORKSPACE_ROOT", DEFAULT_WORKSPACE_DIR)
+    skills_dir: Path = _env_path("JARVIS_SKILLS_DIR", DEFAULT_SKILLS_DIR)
     mcp_config_path: Path = _env_path("JARVIS_MCP_CONFIG", DATA_DIR / "mcp.json")
     scheduler_enabled: bool = os.getenv(
         "JARVIS_SCHEDULER_ENABLED", "true"

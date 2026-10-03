@@ -1,8 +1,4 @@
-from jarvis.ui.main_window import run_app
-
-
-def main() -> int:
-    return run_app()
+from jarvis.__main__ import main
 
 
 if __name__ == "__main__":

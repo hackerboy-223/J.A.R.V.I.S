@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import sys
 
-from jarvis.config import settings
 
+def _serve(host: str | None, port: int | None) -> int:
+    from jarvis.config import settings
 
-def _serve(host: str, port: int) -> int:
+    host = host or settings.api_host
+    port = settings.api_port if port is None else port
     try:
         address = ipaddress.ip_address(host)
         loopback = address.is_loopback
@@ -32,15 +35,24 @@ def _serve(host: str, port: int) -> int:
 
 
 def main() -> int:
+    argv = sys.argv[1:]
+    if argv and argv[0] == "--jarvis-sandbox-runner":
+        if len(argv) != 1:
+            print("Usage interne invalide pour le sandbox JARVIS.")
+            return 2
+        from jarvis.sandbox_runner import run_sandbox_runner
+
+        return run_sandbox_runner()
+
     parser = argparse.ArgumentParser(prog="jarvis")
     sub = parser.add_subparsers(dest="command")
 
     serve = sub.add_parser("serve", help="Lancer l'API locale OpenAI-compatible.")
-    serve.add_argument("--host", default=settings.api_host)
-    serve.add_argument("--port", type=int, default=settings.api_port)
+    serve.add_argument("--host")
+    serve.add_argument("--port", type=int)
     sub.add_parser("selftest", help="Tester les nouveaux sous-systèmes sans API externe.")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command == "serve":
         return _serve(args.host, args.port)
     if args.command == "selftest":
