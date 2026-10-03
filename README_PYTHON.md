@@ -295,3 +295,17 @@ Behavior:
 
 The Groq request includes `language=fr`, temperature 0 and a small vocabulary prompt for common
 J.A.R.V.I.S. project terms.
+
+
+## Tavily web search
+
+J.A.R.V.I.S. uses Tavily for public web search.
+
+```env
+TAVILY_API_KEY="tvly-..."
+JARVIS_TAVILY_SEARCH_DEPTH="basic"
+```
+
+`basic` is the recommended default for the free plan because it uses fewer Tavily credits.
+The web tool calls Tavily directly through HTTPS; no additional Python SDK is required.
+Search results are normalized to title, URL, snippet and score before being returned to the agent.
