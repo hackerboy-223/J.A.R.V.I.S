@@ -48,6 +48,23 @@ class MemoryStore:
                     summary TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS operative_state (
+                    operator_id TEXT PRIMARY KEY,
+                    state_json TEXT NOT NULL,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS operative_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operator_id TEXT NOT NULL,
+                    prompt TEXT NOT NULL,
+                    answer TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_operative_runs_operator
+                ON operative_runs(operator_id, id DESC);
                 """
             )
 
@@ -114,5 +131,81 @@ class MemoryStore:
                 LIMIT ?
                 """,
                 (limit,),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
+
+    def get_operative_state(self, operator_id: str) -> dict[str, Any]:
+        clean = operator_id.strip()[:120] or "main"
+        with self._lock, self._connect() as db:
+            row = db.execute(
+                "SELECT state_json FROM operative_state WHERE operator_id = ?",
+                (clean,),
+            ).fetchone()
+        if row is None:
+            return {}
+        try:
+            value = json.loads(str(row["state_json"]))
+        except json.JSONDecodeError:
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def set_operative_state(self, operator_id: str, state: dict[str, Any]) -> None:
+        clean = operator_id.strip()[:120] or "main"
+        payload = json.dumps(state, ensure_ascii=False, default=str)[:30000]
+        with self._lock, self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO operative_state(operator_id, state_json)
+                VALUES (?, ?)
+                ON CONFLICT(operator_id) DO UPDATE SET
+                    state_json=excluded.state_json,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (clean, payload),
+            )
+            db.commit()
+
+    def add_operative_run(self, operator_id: str, prompt: str, answer: str) -> None:
+        clean = operator_id.strip()[:120] or "main"
+        with self._lock, self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO operative_runs(operator_id, prompt, answer)
+                VALUES (?, ?, ?)
+                """,
+                (clean, prompt[:6000], answer[:16000]),
+            )
+            db.execute(
+                """
+                DELETE FROM operative_runs
+                WHERE id NOT IN (
+                    SELECT id FROM operative_runs
+                    WHERE operator_id = ?
+                    ORDER BY id DESC
+                    LIMIT 30
+                )
+                AND operator_id = ?
+                """,
+                (clean, clean),
+            )
+            db.commit()
+
+    def recent_operative_runs(
+        self,
+        operator_id: str,
+        limit: int = 6,
+    ) -> list[dict[str, str]]:
+        clean = operator_id.strip()[:120] or "main"
+        with self._lock, self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT prompt, answer, created_at
+                FROM operative_runs
+                WHERE operator_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (clean, max(1, min(int(limit), 20))),
             ).fetchall()
         return [dict(row) for row in reversed(rows)]
