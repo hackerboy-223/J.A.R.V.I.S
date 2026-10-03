@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import re
 import sqlite3
@@ -7,6 +8,9 @@ import threading
 import uuid
 from pathlib import Path
 from typing import Any
+
+from jarvis.config import settings
+from jarvis.core.embeddings import EmbeddingClient, cosine_similarity
 
 
 _TOKEN_RE = re.compile(r"[\wÀ-ÿ'-]{3,}", re.UNICODE)
@@ -22,6 +26,7 @@ class KnowledgeBase:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self._lock = threading.RLock()
+        self.embedding_client = EmbeddingClient()
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -53,6 +58,13 @@ class KnowledgeBase:
                 ON knowledge_chunks(document_id);
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(knowledge_chunks)").fetchall()
+            }
+            if "embedding_json" not in columns:
+                db.execute("ALTER TABLE knowledge_chunks ADD COLUMN embedding_json TEXT")
+            db.commit()
 
     @staticmethod
     def chunk_text(text: str, chunk_words: int = 650, overlap_words: int = 120) -> list[str]:
@@ -80,6 +92,13 @@ class KnowledgeBase:
         if not chunks:
             raise ValueError("Impossible de découper ce document.")
 
+        vectors: list[list[float]] = []
+        if self.embedding_client.enabled:
+            try:
+                vectors = self.embedding_client.embed_many(chunks)
+            except Exception:
+                vectors = []
+
         with self._lock, self._connect() as db:
             db.execute(
                 """
@@ -90,11 +109,23 @@ class KnowledgeBase:
             )
             db.executemany(
                 """
-                INSERT INTO knowledge_chunks(id, document_id, chunk_index, text)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO knowledge_chunks(
+                    id, document_id, chunk_index, text, embedding_json
+                )
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 [
-                    (f"{doc_id}:{index}", doc_id, index, chunk)
+                    (
+                        f"{doc_id}:{index}",
+                        doc_id,
+                        index,
+                        chunk,
+                        (
+                            json.dumps(vectors[index])
+                            if index < len(vectors)
+                            else None
+                        ),
+                    )
                     for index, chunk in enumerate(chunks)
                 ],
             )
@@ -150,7 +181,8 @@ class KnowledgeBase:
         with self._lock, self._connect() as db:
             rows = db.execute(
                 """
-                SELECT c.id, c.document_id, c.chunk_index, c.text, d.name
+                SELECT c.id, c.document_id, c.chunk_index, c.text,
+                       c.embedding_json, d.name
                 FROM knowledge_chunks c
                 JOIN knowledge_documents d ON d.id = c.document_id
                 """
@@ -174,7 +206,14 @@ class KnowledgeBase:
         for token in set(q_tokens):
             doc_freq[token] = sum(1 for _, tokens in docs if token in set(tokens))
 
-        scored: list[tuple[float, sqlite3.Row]] = []
+        query_vector: list[float] | None = None
+        if self.embedding_client.enabled:
+            try:
+                query_vector = self.embedding_client.embed(query)
+            except Exception:
+                query_vector = None
+
+        lexical_rows: list[tuple[float, float, sqlite3.Row]] = []
         for row, tokens in docs:
             if not tokens:
                 continue
@@ -193,20 +232,42 @@ class KnowledgeBase:
                 denom = tf + k1 * (1.0 - b + b * dl / max(1.0, avg_len))
                 score += idf * (tf * (k1 + 1.0) / denom)
 
-            if score > 0:
-                scored.append((score, row))
+            dense = 0.0
+            raw_embedding = row["embedding_json"]
+            if query_vector is not None and raw_embedding:
+                try:
+                    vector = json.loads(str(raw_embedding))
+                    if isinstance(vector, list):
+                        dense = max(0.0, cosine_similarity(query_vector, vector))
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    dense = 0.0
 
-        scored.sort(key=lambda item: item[0], reverse=True)
+            if score > 0 or dense > 0:
+                lexical_rows.append((score, dense, row))
+
+        max_bm25 = max((item[0] for item in lexical_rows), default=0.0)
+        dense_weight = settings.hybrid_dense_weight if query_vector is not None else 0.0
+        combined: list[tuple[float, float, float, sqlite3.Row]] = []
+        for bm25, dense, row in lexical_rows:
+            bm25_norm = bm25 / max_bm25 if max_bm25 > 0 else 0.0
+            hybrid = (1.0 - dense_weight) * bm25_norm + dense_weight * dense
+            combined.append((hybrid, bm25, dense, row))
+
+        combined.sort(key=lambda item: item[0], reverse=True)
 
         return [
             {
-                "score": round(score, 4),
+                "score": round(hybrid, 4),
+                "bm25_score": round(bm25, 4),
+                "dense_score": round(dense, 4),
+                "retrieval": "hybrid" if dense_weight > 0 else "bm25",
                 "document_id": row["document_id"],
                 "document": row["name"],
                 "chunk_index": row["chunk_index"],
                 "text": str(row["text"])[:2200],
             }
-            for score, row in scored[: max(1, min(top_k, 12))]
+            for hybrid, bm25, dense, row
+            in combined[: max(1, min(top_k, 12))]
         ]
 
     def context_for(self, query: str, top_k: int = 5) -> str:
