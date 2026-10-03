@@ -69,61 +69,72 @@ def web_search(args: dict) -> dict:
     query = str(args.get("query", "")).strip()
     if not query:
         raise ValueError("query est requis.")
-    if not settings.tavily_api_key:
+    if not settings.exa_api_key:
         raise RuntimeError(
-            "TAVILY_API_KEY n'est pas configuré. "
-            "Ajoute une clé Tavily tvly-... dans le fichier .env."
+            "EXA_API_KEY n'est pas configuré. "
+            "Ajoute ta clé Exa dans le fichier .env local."
         )
 
-    count = int(args.get("num", 8) or 8)
-    count = max(1, min(count, 10))
+    payload: dict[str, object] = {
+        "query": query,
+        "type": "auto",
+        "contents": {
+            "highlights": True,
+        },
+    }
 
-    depth = settings.tavily_search_depth
-    if depth not in {"basic", "advanced"}:
-        depth = "basic"
+    if "num" in args and args.get("num") is not None:
+        count = int(args.get("num") or 10)
+        payload["numResults"] = max(1, min(count, 10))
 
     response = httpx.post(
-        "https://api.tavily.com/search",
+        "https://api.exa.ai/search",
         headers={
-            "Authorization": f"Bearer {settings.tavily_api_key}",
+            "x-api-key": settings.exa_api_key,
             "Content-Type": "application/json",
         },
-        json={
-            "query": query[:500],
-            "search_depth": depth,
-            "max_results": count,
-            "topic": "general",
-            "include_answer": False,
-            "include_raw_content": False,
-        },
-        timeout=15,
+        json=payload,
+        timeout=20,
     )
 
     if response.status_code == 401:
-        raise RuntimeError("Clé Tavily invalide ou non autorisée.")
+        raise RuntimeError("Clé Exa invalide ou non autorisée.")
     if response.status_code == 429:
         raise RuntimeError(
-            "Limite Tavily atteinte. Réessaie plus tard ou attends le renouvellement du quota."
+            "Limite Exa atteinte. Réessaie plus tard ou vérifie ton quota."
         )
 
     response.raise_for_status()
     data = response.json()
 
     results = []
-    for item in data.get("results", [])[:count]:
+    for item in data.get("results", []):
+        highlights = item.get("highlights") or []
+        if isinstance(highlights, str):
+            snippet = highlights
+        elif isinstance(highlights, list):
+            snippet = "\n".join(
+                str(part).strip()
+                for part in highlights
+                if str(part).strip()
+            )
+        else:
+            snippet = ""
+
         results.append(
             {
-                "title": str(item.get("title", "")),
-                "url": str(item.get("url", "")),
-                "snippet": str(item.get("content", "")),
-                "score": item.get("score"),
+                "title": str(item.get("title", "") or ""),
+                "url": str(item.get("url", "") or ""),
+                "snippet": snippet,
+                "published_date": item.get("publishedDate"),
+                "author": item.get("author"),
             }
         )
 
     return {
         "query": query,
-        "provider": "tavily",
-        "search_depth": depth,
+        "provider": "exa",
+        "request_id": data.get("requestId"),
         "results": results,
     }
 
