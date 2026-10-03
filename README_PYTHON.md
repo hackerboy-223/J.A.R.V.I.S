@@ -448,3 +448,18 @@ Select an agent mode through request metadata:
 ```
 
 For a non-loopback bind, set `JARVIS_API_TOKEN`; JARVIS refuses to expose the API on the network without one.
+
+
+### Platform smoke test
+
+After pulling the branch and installing dependencies:
+
+```powershell
+git pull
+python -m pip install -e .
+python -m jarvis selftest
+```
+
+The self-test is intentionally offline and checks Scheduler, Operative persistence, BM25 memory fallback,
+Skills discovery, restricted Python sandbox, MCP configuration parsing and FastAPI imports without
+calling OpenRouter, Exa or Groq.
