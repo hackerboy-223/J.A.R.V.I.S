@@ -321,3 +321,130 @@ The integration follows Exa's official `build-with-exa` skill for coding agents:
 - no Exa SDK dependency is required; the project uses its existing `httpx` dependency
 
 Because J.A.R.V.I.S. already has OpenRouter as its reasoning/chat LLM, Exa is used as a retrieval tool rather than the Exa `/answer` endpoint.
+
+
+## Agent platform extensions
+
+The Python rewrite now includes the selected OpenJarvis-inspired platform capabilities.
+
+### Operative mode
+
+Select **OPERATIVE** in the desktop mode selector. Each operator has persistent JSON state and run history in SQLite. Scheduled operative tasks use an isolated operator id based on their task id.
+
+### Persistent scheduler
+
+Available agent tools:
+
+- `schedule_task`
+- `list_scheduled_tasks`
+- `pause_scheduled_task`
+- `resume_scheduled_task`
+- `cancel_scheduled_task`
+
+Supported schedule types:
+
+- `once`: ISO 8601 datetime
+- `interval`: seconds, minimum 60
+- `cron`: standard cron expression
+
+The desktop process or API server must be running for due work to execute.
+
+### Safe workspace files
+
+Configure:
+
+```env
+JARVIS_WORKSPACE_ROOT=""
+```
+
+Blank means the repository root. `file_read`, `file_write`, and `file_patch` cannot escape this root. Secret paths such as `.env`, `.git`, `.ssh`, credential files, and the JARVIS SQLite database are blocked.
+
+### Restricted Python sandbox
+
+`python_sandbox` runs short pure-computation Python snippets in an isolated temporary directory with:
+
+- short timeout
+- import allowlist
+- restricted builtins
+- no file-open builtin
+- no subprocess/network modules exposed
+
+It is intentionally not a general shell or OS security boundary.
+
+### Skills
+
+Create skills under:
+
+```text
+skills/<skill-name>/SKILL.md
+skills/<skill-name>/skill.toml
+```
+
+The agent receives only a compact skill catalog in its system prompt and loads full instructions with `use_skill` when needed. Bundled scripts are never executed automatically.
+
+An example is provided under `skills.example/code-review/`.
+
+### MCP
+
+Copy `mcp.example.json` to the runtime MCP config path (default: `data/mcp.json`) and configure only trusted servers.
+
+```env
+JARVIS_MCP_CONFIG=""
+```
+
+Blank uses `data/mcp.json`. Supported transports are configured stdio servers and secure Streamable HTTP URLs. Environment secrets can be referenced as `${NAME}`; JARVIS passes only explicitly listed variables to stdio MCP servers.
+
+Agent tools:
+
+- `mcp_servers`
+- `mcp_list_tools`
+- `mcp_call`
+
+### Hybrid knowledge memory
+
+BM25 remains the zero-configuration default. To add dense retrieval, point JARVIS at any OpenAI-compatible embeddings endpoint:
+
+```env
+JARVIS_EMBEDDING_BASE_URL=""
+JARVIS_EMBEDDING_API_KEY=""
+JARVIS_EMBEDDING_MODEL=""
+JARVIS_HYBRID_DENSE_WEIGHT="0.35"
+```
+
+Newly indexed chunks receive embeddings when configured. Search combines normalized BM25 with cosine similarity. Existing chunks indexed before embeddings were enabled remain BM25-only until re-indexed.
+
+### Local OpenAI-compatible API
+
+Install/update dependencies, then start:
+
+```powershell
+python -m pip install -e .
+python -m jarvis serve
+```
+
+Default endpoint:
+
+```text
+http://127.0.0.1:8000
+```
+
+Routes:
+
+- `GET /health`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+
+Select an agent mode through request metadata:
+
+```json
+{
+  "model": "jarvis",
+  "messages": [{"role": "user", "content": "Continue the project audit"}],
+  "metadata": {
+    "mode": "operative",
+    "operator_id": "project-audit"
+  }
+}
+```
+
+For a non-loopback bind, set `JARVIS_API_TOKEN`; JARVIS refuses to expose the API on the network without one.
