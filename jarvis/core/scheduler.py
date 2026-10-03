@@ -32,7 +32,7 @@ class TaskScheduler:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.db_path)
+        db = sqlite3.connect(self.db_path, timeout=10)
         db.row_factory = sqlite3.Row
         return db
 
