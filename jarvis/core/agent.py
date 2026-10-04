@@ -930,7 +930,7 @@ class JarvisAgent:
             return str(args.get("text", "")).strip()
 
         try:
-            tool = self.tools.get(name)
+            self.tools.get(name)
         except ValueError:
             return None
 
