@@ -748,15 +748,11 @@ class JarvisAgent:
             return None
 
         progress(f"LOCAL · {name.upper()}")
-        if tool.requires_confirmation and not self.confirm(self._confirm_summary(name, args)):
-            return "Action locale annulée."
+        outcome = self._execute_tool(name, args, progress)
+        if not outcome.get("ok"):
+            return f"Action locale impossible : {outcome.get('error', 'erreur inconnue')}"
 
-        try:
-            result = self.tools.execute(name, args)
-        except Exception as exc:
-            return f"Action locale impossible : {exc}"
-
-        self.memory.log_action(name, args, {"ok": True, "data": result})
+        result = outcome.get("data") or {}
         if name == "system_status":
             return (
                 f"CPU {result.get('cpu_percent', '?')} %, "
