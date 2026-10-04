@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
-from jarvis.config import settings
+from jarvis.config import DATA_DIR, settings
 from jarvis.core.secrets import SecretStore
 
 from PySide6.QtWidgets import (
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QInputDialog,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -39,7 +41,13 @@ class PlatformCenterDialog(QDialog):
 
         self.health_text = QTextEdit()
         self.health_text.setReadOnly(True)
-        self.tabs.addTab(self.health_text, "HEALTH")
+        health_page = QWidget()
+        health_layout = QVBoxLayout(health_page)
+        health_layout.addWidget(self.health_text)
+        logs_button = QPushButton("OUVRIR LES LOGS")
+        logs_button.clicked.connect(self._open_logs)
+        health_layout.addWidget(logs_button)
+        self.tabs.addTab(health_page, "HEALTH")
 
         permissions_page = QWidget()
         permissions_layout = QVBoxLayout(permissions_page)
@@ -59,12 +67,32 @@ class PlatformCenterDialog(QDialog):
         self.jobs_table = QTableWidget(0, 5)
         self.jobs_table.setHorizontalHeaderLabels(["ID", "Titre", "État", "Progression", "Erreur"])
         self.jobs_table.horizontalHeader().setStretchLastSection(True)
-        self.tabs.addTab(self.jobs_table, "JOBS")
+        jobs_page = QWidget()
+        jobs_layout = QVBoxLayout(jobs_page)
+        jobs_layout.addWidget(self.jobs_table)
+        cancel_job = QPushButton("ANNULER LE JOB SÉLECTIONNÉ")
+        cancel_job.clicked.connect(self._cancel_selected_job)
+        jobs_layout.addWidget(cancel_job)
+        self.tabs.addTab(jobs_page, "JOBS")
 
         self.tasks_table = QTableWidget(0, 5)
         self.tasks_table.setHorizontalHeaderLabels(["ID", "Prompt", "Type", "Valeur", "Actif"])
         self.tasks_table.horizontalHeader().setStretchLastSection(True)
-        self.tabs.addTab(self.tasks_table, "TASKS")
+        tasks_page = QWidget()
+        tasks_layout = QVBoxLayout(tasks_page)
+        tasks_layout.addWidget(self.tasks_table)
+        task_actions = QHBoxLayout()
+        for label, action in (
+            ("PAUSE", "pause"),
+            ("REPRENDRE", "resume"),
+            ("ANNULER", "cancel"),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(lambda _, value=action: self._task_action(value))
+            task_actions.addWidget(button)
+        task_actions.addStretch(1)
+        tasks_layout.addLayout(task_actions)
+        self.tabs.addTab(tasks_page, "TASKS")
 
         self.activity_text = QTextEdit()
         self.activity_text.setReadOnly(True)
@@ -72,11 +100,23 @@ class PlatformCenterDialog(QDialog):
 
         self.workspace_text = QTextEdit()
         self.workspace_text.setReadOnly(True)
-        self.tabs.addTab(self.workspace_text, "WORKSPACES")
+        workspace_page = QWidget()
+        workspace_layout = QVBoxLayout(workspace_page)
+        workspace_layout.addWidget(self.workspace_text)
+        add_workspace = QPushButton("AJOUTER UN WORKSPACE")
+        add_workspace.clicked.connect(self._add_workspace)
+        workspace_layout.addWidget(add_workspace)
+        self.tabs.addTab(workspace_page, "WORKSPACES")
 
         self.missions_text = QTextEdit()
         self.missions_text.setReadOnly(True)
-        self.tabs.addTab(self.missions_text, "MISSIONS")
+        mission_page = QWidget()
+        mission_layout = QVBoxLayout(mission_page)
+        mission_layout.addWidget(self.missions_text)
+        add_mission = QPushButton("NOUVELLE MISSION")
+        add_mission.clicked.connect(self._add_mission)
+        mission_layout.addWidget(add_mission)
+        self.tabs.addTab(mission_page, "MISSIONS")
 
         files_page = QWidget()
         files_layout = QVBoxLayout(files_page)
@@ -217,6 +257,74 @@ class PlatformCenterDialog(QDialog):
         self.missions_text.setPlainText(
             json.dumps(self.agent.platform.missions(), ensure_ascii=False, indent=2)
         )
+
+    def _open_logs(self) -> None:
+        logs = (DATA_DIR / "logs").resolve()
+        logs.mkdir(parents=True, exist_ok=True)
+        try:
+            os.startfile(logs)
+        except Exception as exc:
+            QMessageBox.warning(self, "Logs", str(exc))
+
+    def _cancel_selected_job(self) -> None:
+        row = self.jobs_table.currentRow()
+        if row < 0:
+            return
+        item = self.jobs_table.item(row, 0)
+        if item is None:
+            return
+        self.agent.jobs.cancel(item.text())
+        self.refresh()
+
+    def _task_action(self, action: str) -> None:
+        row = self.tasks_table.currentRow()
+        if row < 0:
+            return
+        item = self.tasks_table.item(row, 0)
+        if item is None:
+            return
+        task_id = item.text()
+        try:
+            if action == "pause":
+                self.agent.scheduler.pause(task_id)
+            elif action == "resume":
+                self.agent.scheduler.resume(task_id)
+            elif action == "cancel":
+                self.agent.scheduler.cancel(task_id)
+        except Exception as exc:
+            QMessageBox.warning(self, "Task Center", str(exc))
+        self.refresh()
+
+    def _add_workspace(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        root = QFileDialog.getExistingDirectory(self, "Choisir un workspace")
+        if not root:
+            return
+        default_name = Path(root).name or "Workspace"
+        name, ok = QInputDialog.getText(
+            self,
+            "Workspace",
+            "Nom :",
+            text=default_name,
+        )
+        if not ok:
+            return
+        self.agent.platform.add_workspace(name or default_name, root, favorite=False)
+        self.agent.events.publish("workspace.updated", {"root_path": root})
+        self.refresh()
+
+    def _add_mission(self) -> None:
+        title, ok = QInputDialog.getText(self, "Mission", "Titre de la mission :")
+        if not ok or not title.strip():
+            return
+        mission = self.agent.platform.create_mission(title.strip(), mode="operative")
+        self.agent.platform.checkpoint(
+            mission["id"],
+            {"created_from": "desktop", "status": "ready"},
+        )
+        self.agent.events.publish("mission.created", mission)
+        self.refresh()
 
     def _search_files(self) -> None:
         query = self.file_query.text().strip()
