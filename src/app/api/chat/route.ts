@@ -36,6 +36,159 @@ function toolContextMessage(toolName: string, resultJson: string, isError: boole
     : `TOOL_RESULT (${toolName}): ${truncated}`;
 }
 
+async function proxyToPythonCore(
+  req: NextRequest,
+  content: string,
+  conversationId: string | null,
+): Promise<Response> {
+  const coreUrl = (process.env.JARVIS_CORE_URL ?? "").trim().replace(/\/$/, "");
+  if (!coreUrl) throw new Error("JARVIS_CORE_URL manquant");
+
+  let conv = conversationId
+    ? await db.conversation.findUnique({ where: { id: conversationId } })
+    : null;
+  if (!conv) {
+    conv = await db.conversation.create({
+      data: { title: makeTitle(content), model: "jarvis-core", engine: "core" },
+    });
+  }
+
+  const userMsg = await db.message.create({
+    data: { role: "user", content, conversationId: conv.id },
+  });
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const coreToken = (process.env.JARVIS_CORE_TOKEN ?? "").trim();
+  if (coreToken) headers.Authorization = `Bearer ${coreToken}`;
+
+  const upstream = await fetch(`${coreUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers,
+    signal: req.signal,
+    body: JSON.stringify({
+      model: "jarvis",
+      stream: true,
+      messages: [{ role: "user", content }],
+      metadata: {
+        mode: "operative",
+        operator_id: `web:${conv.id}`,
+      },
+    }),
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    const detail = await upstream.text().catch(() => "");
+    throw new Error(
+      `Python Core indisponible (${upstream.status})${detail ? `: ${detail.slice(0, 500)}` : ""}`
+    );
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const reader = upstream.body.getReader();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let buffer = "";
+      let finalText = "";
+      let closed = false;
+
+      const send = (ev: ChatSseEvent) => {
+        if (closed || req.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        } catch {
+          closed = true;
+        }
+      };
+
+      send({
+        type: "start",
+        conversationId: conv!.id,
+        userMessageId: userMsg.id,
+        engine: "core",
+        model: "jarvis-core",
+      });
+      send({ type: "status", step: 1, status: "Python Core · traitement…" });
+
+      try {
+        while (!req.signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line.startsWith("data:")) continue;
+            const raw = line.slice(5).trim();
+            if (!raw || raw === "[DONE]") continue;
+
+            let chunk: unknown;
+            try {
+              chunk = JSON.parse(raw);
+            } catch {
+              continue;
+            }
+
+            if (!chunk || typeof chunk !== "object") continue;
+            const choices = (chunk as { choices?: Array<{ delta?: { content?: string } }> }).choices;
+            const delta = choices?.[0]?.delta?.content;
+            if (typeof delta === "string" && delta) {
+              finalText += delta;
+              send({ type: "token", text: delta });
+            }
+          }
+        }
+
+        if (!req.signal.aborted) {
+          const assistantMsg = await db.message.create({
+            data: {
+              role: "assistant",
+              content: finalText,
+              conversationId: conv!.id,
+            },
+          });
+          const title = conv!.title || makeTitle(content);
+          await db.conversation.update({
+            where: { id: conv!.id },
+            data: {
+              title,
+              model: "jarvis-core",
+              engine: "core",
+              updatedAt: new Date(),
+            },
+          });
+          send({ type: "done", messageId: assistantMsg.id, title });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Erreur Python Core";
+        send({ type: "error", message });
+      } finally {
+        try {
+          await reader.cancel();
+        } catch {
+          // upstream déjà terminé
+        }
+        try {
+          controller.close();
+        } catch {
+          // stream déjà fermé
+        }
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
 export async function POST(req: NextRequest) {
   const denied = requireAuthorized(req);
   if (denied) return denied;
@@ -59,6 +212,23 @@ export async function POST(req: NextRequest) {
   }
   if (content.length > MAX_USER_CHARS) {
     return Response.json({ error: "Message trop long (32 000 caractères max)" }, { status: 400 });
+  }
+
+  if ((process.env.JARVIS_CORE_URL ?? "").trim()) {
+    try {
+      return await proxyToPythonCore(req, content, conversationId);
+    } catch (error) {
+      console.error("[chat:python-core]", error);
+      return Response.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Le Python Core J.A.R.V.I.S. est indisponible.",
+        },
+        { status: 502 }
+      );
+    }
   }
 
   // Réglages + résolution du moteur
