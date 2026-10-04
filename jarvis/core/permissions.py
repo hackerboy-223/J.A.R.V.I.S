@@ -15,8 +15,12 @@ ConfirmFn = Callable[[str], bool]
 _DEFAULTS: dict[str, Decision] = {
     "system.read": "allow",
     "knowledge.read": "allow",
+    "mcp.inspect": "allow",
+    "network.web": "allow",
     "workspace.read": "allow",
     "files.search": "allow",
+    "files.history": "allow",
+    "files.index": "ask",
     "windows.inspect": "ask",
     "windows.focus": "ask",
     "clipboard.write": "allow",
@@ -30,6 +34,9 @@ _DEFAULTS: dict[str, Decision] = {
     "python.sandbox": "ask",
     "mcp.call": "ask",
     "scheduler.mutate": "ask",
+    "mission.manage": "ask",
+    "workspace.manage": "ask",
+    "scheduler.read": "allow",
     "update.download": "ask",
     "update.install": "ask",
 }
