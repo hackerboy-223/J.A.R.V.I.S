@@ -32,6 +32,22 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(raw or default).expanduser().resolve()
 
 
+def _workspace_path(default: Path) -> Path:
+    raw = os.getenv("JARVIS_WORKSPACE_ROOT", "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    try:
+        from PySide6.QtCore import QSettings
+        preferred = str(
+            QSettings("HACKERBOY", "JARVIS").value("workspace/root", "") or ""
+        ).strip()
+        if preferred:
+            return Path(preferred).expanduser().resolve()
+    except Exception:
+        pass
+    return default.expanduser().resolve()
+
+
 def _secret(env_name: str, secret_name: str | None = None) -> str:
     direct = os.getenv(env_name, "").strip()
     if direct:
@@ -66,7 +82,7 @@ class Settings:
         400,
         min(6000, int(os.getenv("JARVIS_EXA_SNIPPET_CHARS", "1800"))),
     )
-    workspace_root: Path = _env_path("JARVIS_WORKSPACE_ROOT", DEFAULT_WORKSPACE_DIR)
+    workspace_root: Path = _workspace_path(DEFAULT_WORKSPACE_DIR)
     skills_dir: Path = _env_path("JARVIS_SKILLS_DIR", DEFAULT_SKILLS_DIR)
     mcp_config_path: Path = _env_path("JARVIS_MCP_CONFIG", DATA_DIR / "mcp.json")
     scheduler_enabled: bool = os.getenv(
