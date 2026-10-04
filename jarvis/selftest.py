@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tempfile
+import time
 
 
 def run() -> int:
@@ -94,6 +95,75 @@ def run() -> int:
             assert manager.list_servers() == []
         return "MCP config/parser OK"
 
+    def permissions_check() -> str:
+        from jarvis.core.permissions import PermissionEngine
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = PermissionEngine(Path(tmp) / "permissions.db")
+            assert engine.get("system.read") == "allow"
+            engine.set("screen.capture", "deny", "session")
+            assert engine.get("screen.capture") == "deny"
+            assert not engine.authorize("screen.capture", "test", lambda _: True)
+        return "ALLOW/ASK/DENY + scopes OK"
+
+    def events_check() -> str:
+        from jarvis.core.events import EventBus
+        bus = EventBus()
+        with bus.subscribe() as subscription:
+            emitted = bus.emit("selftest.event", {"value": 7})
+            received = subscription.get(timeout=1)
+            assert received.id == emitted.id
+            assert received.payload["value"] == 7
+        return "thread-safe publish/subscribe OK"
+
+    def jobs_check() -> str:
+        from jarvis.core.activity import ActivityStore
+        from jarvis.core.events import EventBus
+        from jarvis.core.jobs import JobManager
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "jobs.db"
+            events = EventBus()
+            activity = ActivityStore(db)
+            jobs = JobManager(db, events, activity)
+            job_id = jobs.submit("selftest", lambda ctx: {"value": 42})
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                item = jobs.get(job_id)
+                if item and item["status"] in {"completed", "failed", "cancelled"}:
+                    break
+                time.sleep(0.02)
+            item = jobs.get(job_id)
+            assert item and item["status"] == "completed"
+            assert item["result"]["value"] == 42
+        return "queued/running/completed persistence OK"
+
+    def file_index_check() -> str:
+        from jarvis.core.file_index import FileIndex
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            root.mkdir()
+            (root / "important-notes.md").write_text("demo", encoding="utf-8")
+            index = FileIndex(Path(tmp) / "index.db")
+            result = index.index_workspace("demo", root)
+            assert result["indexed"] == 1
+            matches = index.search("important", workspace_id="demo")
+            assert matches and matches[0]["name"] == "important-notes.md"
+        return "SQLite FTS5 workspace search OK"
+
+    def mission_workspace_check() -> str:
+        from jarvis.core.missions import MissionStore
+        from jarvis.core.workspaces import WorkspaceStore
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            root.mkdir()
+            db = Path(tmp) / "mission.db"
+            workspaces = WorkspaceStore(db)
+            workspace = workspaces.add("Demo", root, True)
+            missions = MissionStore(db)
+            mission = missions.create("Continue demo", workspace_id=workspace["id"])
+            assert mission["operator_id"].startswith("mission:")
+            assert missions.get(mission["id"])["title"] == "Continue demo"
+        return "persistent workspaces/missions OK"
+
     def api_check() -> str:
         from jarvis.api import create_app
         assert callable(create_app)
@@ -106,6 +176,11 @@ def run() -> int:
     check("Python sandbox", sandbox_check)
     check("MCP", mcp_check)
     check("FastAPI", api_check)
+    check("Permissions", permissions_check)
+    check("Event bus", events_check)
+    check("Job manager", jobs_check)
+    check("File index", file_index_check)
+    check("Missions/workspaces", mission_workspace_check)
 
     print("\nJ.A.R.V.I.S. PLATFORM SELF-TEST")
     print("=" * 42)
