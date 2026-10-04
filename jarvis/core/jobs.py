@@ -150,8 +150,6 @@ class JobManager:
         return job_id
 
     def _run(self, job_id: str, runner: JobRunner, cancel_event: threading.Event) -> None:
-        self._update(job_id, status="running", started_at="CURRENT_TIMESTAMP")
-        # SQLite cannot interpret the literal above through a bound parameter.
         with self._lock, closing(self._connect()) as db:
             db.execute(
                 "UPDATE runtime_jobs SET status='running', started_at=CURRENT_TIMESTAMP WHERE id=?",
