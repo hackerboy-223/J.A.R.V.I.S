@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from jarvis.core.diagnostics import health_snapshot
+from jarvis.core.diagnostics import export_diagnostic_bundle, health_snapshot
 
 
 def _table(headers: list[str]) -> QTableWidget:
@@ -57,7 +57,7 @@ class SystemCenterDialog(QDialog):
         self.tabs.addTab(self._simple_tab(self.jobs_table, self._refresh_jobs, self._cancel_job), "Jobs")
         self.tabs.addTab(self._schedule_tab(), "Tasks")
         self.tabs.addTab(self._simple_tab(self.activity_table, self._refresh_activity), "Activity")
-        self.tabs.addTab(self._simple_tab(self.health_table, self._refresh_health), "Health")
+        self.tabs.addTab(self._simple_tab(self.health_table, self._refresh_health, self._export_diagnostics, "EXPORTER DIAGNOSTICS"), "Health")
         self.tabs.addTab(self._mission_tab(), "Missions")
         self.tabs.addTab(self._simple_tab(self.workspaces_table, self._refresh_workspaces), "Workspaces")
         self.tabs.addTab(self._simple_tab(self.recent_files_table, self._refresh_recent_files), "Recent Files")
@@ -239,6 +239,18 @@ class SystemCenterDialog(QDialog):
             for item in self.agent.runtime.activity.recent(150)
         ]
         self._fill(self.activity_table, rows)
+
+    def _export_diagnostics(self) -> None:
+        try:
+            path = export_diagnostic_bundle()
+        except Exception as exc:
+            QMessageBox.critical(self, "Diagnostics", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Diagnostics",
+            f"Bundle créé :\n{path}\n\nAucun .env ou secret n'est inclus.",
+        )
 
     def _refresh_health(self) -> None:
         running = bool(
