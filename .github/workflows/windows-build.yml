@@ -3,9 +3,19 @@ name: Windows executable
 on:
   push:
     branches:
-      - python-agent-rewrite
+      - main
+      - feat/jarvis-system-core
     paths:
       - ".github/workflows/windows-build.yml"
+      - "jarvis/**"
+      - "main.py"
+      - "packaging/**"
+      - "pyproject.toml"
+      - "tests/**"
+  pull_request:
+    branches:
+      - main
+    paths:
       - "jarvis/**"
       - "main.py"
       - "packaging/**"
@@ -17,9 +27,9 @@ permissions:
   contents: read
 
 jobs:
-  build-windows:
+  test-windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -30,19 +40,29 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install application and packager
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[build]"
+      - name: Install application, Windows tools and tests
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[windows,dev,build]"
+
+      - name: Compile Python sources
+        run: python -m compileall -q jarvis tests
 
       - name: Run regression tests
         run: |
           python -m unittest discover -s tests -v
-          python -m jarvis.selftest
+          python -m jarvis selftest
+
+      - name: Run Ruff
+        run: ruff check jarvis tests
 
       - name: Build and archive Windows app
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: ./packaging/build-windows.ps1
 
       - name: Upload Windows build
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-Windows-x64
