@@ -29,9 +29,10 @@ def _table(headers: list[str]) -> QTableWidget:
 
 
 class SystemCenterDialog(QDialog):
-    def __init__(self, agent, parent=None) -> None:
+    def __init__(self, agent, parent=None, on_activate_mission=None) -> None:
         super().__init__(parent)
         self.agent = agent
+        self.on_activate_mission = on_activate_mission
         self.setWindowTitle("J.A.R.V.I.S. — Control Center")
         self.resize(920, 620)
 
@@ -46,15 +47,17 @@ class SystemCenterDialog(QDialog):
         self.permissions_table = _table(["Capability", "Decision"])
         self.jobs_table = _table(["ID", "État", "Type", "Progression", "Tâche"])
         self.activity_table = _table(["Date", "Catégorie", "Action", "État", "Résumé"])
+        self.schedule_table = _table(["ID", "Actif", "Type", "Prochaine", "Instruction"])
         self.health_table = _table(["Composant", "État", "Détail"])
         self.missions_table = _table(["ID", "Titre", "État", "Mode", "Mise à jour"])
         self.workspaces_table = _table(["ID", "Nom", "Favori", "Chemin"])
 
         self.tabs.addTab(self._permission_tab(), "Permissions")
         self.tabs.addTab(self._simple_tab(self.jobs_table, self._refresh_jobs, self._cancel_job), "Jobs")
+        self.tabs.addTab(self._schedule_tab(), "Tasks")
         self.tabs.addTab(self._simple_tab(self.activity_table, self._refresh_activity), "Activity")
         self.tabs.addTab(self._simple_tab(self.health_table, self._refresh_health), "Health")
-        self.tabs.addTab(self._simple_tab(self.missions_table, self._refresh_missions), "Missions")
+        self.tabs.addTab(self._mission_tab(), "Missions")
         self.tabs.addTab(self._simple_tab(self.workspaces_table, self._refresh_workspaces), "Workspaces")
 
         close = QPushButton("FERMER")
@@ -62,7 +65,7 @@ class SystemCenterDialog(QDialog):
         root.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
         self.refresh_all()
 
-    def _simple_tab(self, table, refresh_fn, action_fn=None) -> QWidget:
+    def _simple_tab(self, table, refresh_fn, action_fn=None, action_label: str = "ANNULER LE JOB") -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.addWidget(table, 1)
@@ -71,12 +74,38 @@ class SystemCenterDialog(QDialog):
         refresh.clicked.connect(refresh_fn)
         actions.addWidget(refresh)
         if action_fn is not None:
-            action = QPushButton("ANNULER LE JOB")
+            action = QPushButton(action_label)
             action.clicked.connect(action_fn)
             actions.addWidget(action)
         actions.addStretch(1)
         layout.addLayout(actions)
         return page
+
+    def _schedule_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self.schedule_table, 1)
+        actions = QHBoxLayout()
+        for label, callback in (
+            ("PAUSE", self._pause_schedule),
+            ("REPRENDRE", self._resume_schedule),
+            ("ANNULER", self._cancel_schedule),
+            ("ACTUALISER", self._refresh_schedule),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(callback)
+            actions.addWidget(button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        return page
+
+    def _mission_tab(self) -> QWidget:
+        return self._simple_tab(
+            self.missions_table,
+            self._refresh_missions,
+            self._activate_mission,
+            "ACTIVER LA MISSION",
+        )
 
     def _permission_tab(self) -> QWidget:
         page = QWidget()
@@ -129,6 +158,40 @@ class SystemCenterDialog(QDialog):
         self.agent.runtime.jobs.cancel(job_id)
         self._refresh_jobs()
 
+    def _selected_schedule(self) -> str | None:
+        return self._selected_value(self.schedule_table)
+
+    def _pause_schedule(self) -> None:
+        task_id = self._selected_schedule()
+        if task_id:
+            self.agent.scheduler.pause(task_id)
+            self._refresh_schedule()
+
+    def _resume_schedule(self) -> None:
+        task_id = self._selected_schedule()
+        if task_id:
+            self.agent.scheduler.resume(task_id)
+            self._refresh_schedule()
+
+    def _cancel_schedule(self) -> None:
+        task_id = self._selected_schedule()
+        if task_id:
+            answer = QMessageBox.question(
+                self,
+                "Tâche planifiée",
+                "Annuler définitivement cette tâche ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self.agent.scheduler.cancel(task_id)
+                self._refresh_schedule()
+
+    def _activate_mission(self) -> None:
+        mission_id = self._selected_value(self.missions_table)
+        if mission_id and self.on_activate_mission is not None:
+            self.on_activate_mission(mission_id)
+
     def _refresh_permissions(self) -> None:
         rows = [
             [item["capability"], item["decision"].upper()]
@@ -149,6 +212,18 @@ class SystemCenterDialog(QDialog):
                 str(item.get("label", "")),
             ])
         self._fill(self.jobs_table, rows)
+
+    def _refresh_schedule(self) -> None:
+        rows = []
+        for item in self.agent.scheduler.list(100):
+            rows.append([
+                str(item.get("id", "")),
+                "OUI" if item.get("enabled") else "NON",
+                str(item.get("schedule_type", "")),
+                str(item.get("next_run_at", "") or "—"),
+                str(item.get("prompt", "")),
+            ])
+        self._fill(self.schedule_table, rows)
 
     def _refresh_activity(self) -> None:
         rows = [
@@ -213,6 +288,7 @@ class SystemCenterDialog(QDialog):
     def refresh_all(self) -> None:
         self._refresh_permissions()
         self._refresh_jobs()
+        self._refresh_schedule()
         self._refresh_activity()
         self._refresh_health()
         self._refresh_missions()
