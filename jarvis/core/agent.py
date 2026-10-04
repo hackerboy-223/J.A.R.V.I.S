@@ -36,6 +36,7 @@ from jarvis.workflows import WorkflowEngine
 
 
 ProgressFn = Callable[[str], None]
+DeltaFn = Callable[[str], None]
 
 
 SYSTEM_PROMPT = f"""
@@ -931,10 +932,13 @@ class JarvisAgent:
         include_recent: bool = True,
         max_steps: int = 6,
         local_fallback: bool = True,
+        delta: DeltaFn | None = None,
     ) -> str:
         if local_fallback:
             local = self._run_local_fallback(clean, progress)
             if local is not None:
+                if delta is not None and local:
+                    delta(local)
                 return local
 
         messages = self._messages(
@@ -946,7 +950,15 @@ class JarvisAgent:
         for step in range(1, max(1, min(max_steps, 20)) + 1):
             progress("THINKING" if step == 1 else f"TOOL LOOP · ÉTAPE {step}")
             try:
-                result = self.llm.complete(messages, self.tools.definitions())
+                result = (
+                    self.llm.stream_complete(
+                        messages,
+                        self.tools.definitions(),
+                        on_delta=delta,
+                    )
+                    if delta is not None
+                    else self.llm.complete(messages, self.tools.definitions())
+                )
             except Exception as exc:
                 return f"Erreur du moteur IA : {exc}"
 
@@ -986,6 +998,7 @@ class JarvisAgent:
         clean: str,
         progress: ProgressFn,
         operator_id: str,
+        delta: DeltaFn | None = None,
     ) -> str:
         state = self.memory.get_operative_state(operator_id)
         runs = self.memory.recent_operative_runs(operator_id, limit=6)
@@ -1016,6 +1029,7 @@ class JarvisAgent:
             include_recent=False,
             max_steps=12,
             local_fallback=False,
+            delta=delta,
         )
 
         latest = self.memory.get_operative_state(operator_id)
@@ -1045,6 +1059,7 @@ class JarvisAgent:
         mode: str = "standard",
         progress: ProgressFn | None = None,
         operator_id: str = "main",
+        delta: DeltaFn | None = None,
     ) -> str:
         clean = user_text.strip()
         if not clean:
@@ -1061,22 +1076,30 @@ class JarvisAgent:
                 result = self.workflows.parallel(clean, progress)
                 answer = result.answer
                 self.memory.add_agent_result(clean, result.mode, answer)
+                if delta is not None and answer:
+                    delta(answer)
             elif normalized_mode == "sequential":
                 result = self.workflows.sequential(clean, progress)
                 answer = result.answer
                 self.memory.add_agent_result(clean, result.mode, answer)
+                if delta is not None and answer:
+                    delta(answer)
             elif normalized_mode == "debate":
                 result = self.workflows.debate(clean, progress)
                 answer = result.answer
                 self.memory.add_agent_result(clean, result.mode, answer)
+                if delta is not None and answer:
+                    delta(answer)
             elif normalized_mode == "research":
                 result = self.workflows.research(clean, progress)
                 answer = result.answer
                 self.memory.add_agent_result(clean, result.mode, answer)
+                if delta is not None and answer:
+                    delta(answer)
             elif normalized_mode == "operative":
-                answer = self._run_operative(clean, progress, clean_operator_id)
+                answer = self._run_operative(clean, progress, clean_operator_id, delta=delta)
             else:
-                answer = self._run_standard(clean, progress)
+                answer = self._run_standard(clean, progress, delta=delta)
         except Exception as exc:
             answer = f"Erreur agent : {exc}"
         finally:
@@ -1092,6 +1115,7 @@ class JarvisAgent:
         mode: str = "standard",
         operator_id: str = "main",
         on_progress: ProgressFn | None = None,
+        on_delta: DeltaFn | None = None,
     ) -> str:
         clean = user_text.strip()
         if not clean:
@@ -1104,7 +1128,13 @@ class JarvisAgent:
                     on_progress(message)
 
             ctx.checkpoint()
-            answer = self.ask(clean, mode=mode, progress=progress, operator_id=operator_id)
+            answer = self.ask(
+                clean,
+                mode=mode,
+                progress=progress,
+                operator_id=operator_id,
+                delta=on_delta,
+            )
             ctx.checkpoint()
             return {"answer": answer}
 
