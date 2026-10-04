@@ -98,6 +98,9 @@ class Settings:
     audio_device: str = os.getenv("JARVIS_AUDIO_DEVICE", "")
     ollama_base_url: str = os.getenv("JARVIS_OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
     ollama_model: str = os.getenv("JARVIS_OLLAMA_MODEL", "qwen2.5:1.5b")
+    update_repository: str = os.getenv(
+        "JARVIS_UPDATE_REPOSITORY", "hackerboy-223/J.A.R.V.I.S"
+    ).strip()
     database_path: Path = DATA_DIR / "jarvis.db"
 
 
