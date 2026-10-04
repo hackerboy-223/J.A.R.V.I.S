@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 import os
+import psutil
 from typing import Any
 
 
@@ -36,7 +37,19 @@ def list_windows(args: dict[str, Any] | None = None) -> dict[str, Any]:
         user32.GetWindowTextW(hwnd, buffer, length + 1)
         title = buffer.value.strip()
         if title:
-            windows.append({"handle": int(hwnd), "title": title})
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            process_name = ""
+            try:
+                process_name = psutil.Process(int(pid.value)).name()
+            except (psutil.Error, OSError):
+                process_name = ""
+            windows.append({
+                "handle": int(hwnd),
+                "title": title,
+                "pid": int(pid.value),
+                "process": process_name,
+            })
         return True
 
     user32.EnumWindows(EnumWindowsProc(callback), 0)
