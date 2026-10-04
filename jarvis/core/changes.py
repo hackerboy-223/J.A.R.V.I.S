@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from contextlib import closing
 import difflib
+import os
 import sqlite3
+import tempfile
 import threading
 import uuid
 from pathlib import Path
@@ -130,7 +132,20 @@ class ChangeJournal:
             path.unlink(missing_ok=True)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(str(before), encoding="utf-8")
+            fd, raw = tempfile.mkstemp(
+                prefix=f".{path.name}.",
+                suffix=".undo.tmp",
+                dir=str(path.parent),
+            )
+            temp = Path(raw)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                    handle.write(str(before))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp, path)
+            finally:
+                temp.unlink(missing_ok=True)
 
         with self._lock, closing(self._connect()) as db:
             db.execute("UPDATE file_changes SET undone=1 WHERE id=?", (change_id,))
