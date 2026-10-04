@@ -37,6 +37,9 @@ test = [
   "hypothesis>=6.140",
   "ruff>=0.13",
 ]
+desktop-automation = [
+  "pywinauto>=0.6.9",
+]
 
 [project.scripts]
 jarvis = "jarvis.__main__:main"
