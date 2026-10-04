@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 import shutil
 import sqlite3
@@ -20,7 +21,7 @@ class HealthService:
             checks.append({"name": name, "ok": bool(ok), "detail": detail})
 
         try:
-            with sqlite3.connect(settings.database_path, timeout=3) as db:
+            with closing(sqlite3.connect(settings.database_path, timeout=3)) as db:
                 db.execute("SELECT 1").fetchone()
             add("sqlite", True, str(settings.database_path))
         except Exception as exc:
