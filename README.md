@@ -123,7 +123,8 @@ L'objectif final est simple : **un seul cerveau, une seule mémoire, les mêmes 
 | Exa web search | ✅ Intégré |
 | Control Center Web | ✅ Actif |
 | Diagnostic plateforme | ✅ 12 sous-systèmes |
-| Capture écran multi-moniteurs | ✅ Actif |\n| Compréhension vision par modèle | 🟡 Côté IA à brancher plus tard |
+| Capture écran multi-moniteurs | ✅ Actif |
+| Compréhension vision par modèle | 🟡 Côté IA à brancher plus tard |
 | Window manager Windows | ✅ Actif |
 | Automatisation UI sûre | ✅ Option Windows (`.[windows]`) |
 | Permissions Center natif | ✅ Actif |
@@ -827,7 +828,8 @@ J.A.R.V.I.S/
 
 ## Phase C — Capacités avancées
 
-- [x] capture écran\n- [ ] compréhension visuelle par un modèle multimodal (côté IA)
+- [x] capture écran
+- [ ] compréhension visuelle par un modèle multimodal (côté IA)
 - [x] capture multi-moniteurs
 - [x] safe UI automation
 - [x] missions persistantes
@@ -838,7 +840,8 @@ J.A.R.V.I.S/
 
 ## Phase D — Unification
 
-- [x] Python Core exposé comme surface temps réel\n- [ ] suppression finale du moteur Web historique après validation
+- [x] Python Core exposé comme surface temps réel
+- [ ] suppression finale du moteur Web historique après validation
 - [x] WebSocket event stream
 - [x] Next.js peut devenir client du Python Core via `JARVIS_CORE_URL`
 - [ ] mémoire unique après migration/validation du bridge
