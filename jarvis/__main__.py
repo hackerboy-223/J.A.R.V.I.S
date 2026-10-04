@@ -52,6 +52,8 @@ def main() -> int:
     serve.add_argument("--port", type=int)
     sub.add_parser("selftest", help="Tester les nouveaux sous-systèmes sans API externe.")
     sub.add_parser("doctor", help="Diagnostiquer le démarrage de l\'interface desktop Qt.")
+    migrate = sub.add_parser("migrate-prisma", help="Importer l\'ancienne base Prisma/SQLite.")
+    migrate.add_argument("path")
 
     args = parser.parse_args(argv)
     if args.command == "serve":
@@ -62,6 +64,12 @@ def main() -> int:
     if args.command == "doctor":
         from jarvis.ui.main_window import run_app
         return run_app(diagnostic_seconds=2.0)
+    if args.command == "migrate-prisma":
+        from jarvis.migrations.prisma_import import import_prisma_database
+        import json
+        result = import_prisma_database(args.path)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
 
     from jarvis.ui.main_window import run_app
     return run_app()
