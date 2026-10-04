@@ -7,6 +7,7 @@ from typing import Any
 
 from jarvis.config import settings
 from jarvis.core.changes import ChangeJournal
+from jarvis.core.recent import RecentFileStore
 
 
 _BLOCKED_NAMES = {
@@ -49,6 +50,10 @@ def _journal() -> ChangeJournal:
     return ChangeJournal(settings.database_path)
 
 
+def _recent() -> RecentFileStore:
+    return RecentFileStore(settings.database_path)
+
+
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, raw = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
@@ -71,9 +76,11 @@ def file_read(args: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Fichier trop volumineux pour file_read (1,5 Mo max).")
 
     text = path.read_text(encoding="utf-8", errors="replace")
+    relative = str(path.relative_to(_workspace_root()))
+    _recent().touch(relative, "read")
     max_chars = max(200, min(int(args.get("max_chars", 30000) or 30000), 80000))
     return {
-        "path": str(path.relative_to(_workspace_root())),
+        "path": relative,
         "content": text[:max_chars],
         "truncated": len(text) > max_chars,
     }
@@ -95,6 +102,7 @@ def file_write(args: dict[str, Any]) -> dict[str, Any]:
     before = path.read_text(encoding="utf-8", errors="strict") if path.exists() else None
     _atomic_write(path, content)
     change_id = _journal().record(relative, before, content)
+    _recent().touch(relative, "write")
     return {
         "written": True,
         "path": relative,
@@ -131,6 +139,7 @@ def file_patch(args: dict[str, Any]) -> dict[str, Any]:
     relative = str(path.relative_to(_workspace_root()))
     _atomic_write(path, updated)
     change_id = _journal().record(relative, text, updated)
+    _recent().touch(relative, "patch")
     return {
         "patched": True,
         "path": relative,
