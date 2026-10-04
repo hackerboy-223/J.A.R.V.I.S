@@ -410,6 +410,279 @@ class JarvisAgent:
 
         self.tools.register(
             Tool(
+                name="file_preview_patch",
+                description="Preview an exact workspace patch as a unified diff without modifying the file.",
+                fn=file_preview_patch,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "old": {"type": "string"},
+                        "new": {"type": "string"},
+                        "replace_all": {"type": "boolean"},
+                    },
+                    "required": ["path", "old", "new"],
+                    "additionalProperties": False,
+                },
+                capability="workspace.read",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="file_changes",
+                description="List recent JARVIS file changes that may be undoable.",
+                fn=file_changes,
+                parameters={
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+                    "additionalProperties": False,
+                },
+                capability="files.history",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="file_undo",
+                description="Undo one recorded JARVIS file change only if the file still matches the recorded after-state.",
+                fn=file_undo,
+                parameters={
+                    "type": "object",
+                    "properties": {"change_id": {"type": "string"}},
+                    "required": ["change_id"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+                capability="files.undo",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="window_list",
+                description="List visible Windows desktop windows and the foreground window.",
+                fn=list_windows,
+                parameters={
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+                    "additionalProperties": False,
+                },
+                capability="windows.inspect",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="window_action",
+                description="Focus, minimize, maximize or restore a specific visible Windows window by handle.",
+                fn=window_action,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "enum": ["focus", "minimize", "maximize", "restore"]},
+                        "handle": {"type": "integer"},
+                    },
+                    "required": ["action", "handle"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+                capability="windows.focus",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="clipboard_read",
+                description="Read plain text from the Windows clipboard after permission.",
+                fn=clipboard_read,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                capability="clipboard.read",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="clipboard_write",
+                description="Copy plain text to the Windows clipboard.",
+                fn=clipboard_write,
+                parameters={
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                    "additionalProperties": False,
+                },
+                capability="clipboard.write",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="screen_capture",
+                description="Capture a selected monitor to a local PNG after permission. It does not silently persist screenshots.",
+                fn=screen_capture,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "monitor": {"type": "integer", "minimum": 0},
+                        "persist": {"type": "boolean"},
+                    },
+                    "additionalProperties": False,
+                },
+                capability="screen.capture",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="ui_inspect",
+                description="Inspect named UI Automation controls inside one explicitly named Windows application window.",
+                fn=inspect_controls,
+                parameters={
+                    "type": "object",
+                    "properties": {"window_title": {"type": "string"}},
+                    "required": ["window_title"],
+                    "additionalProperties": False,
+                },
+                capability="ui.inspect",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="ui_action",
+                description="Safely click or type into one explicitly identified UI Automation control. Coordinates and arbitrary scripts are not accepted.",
+                fn=ui_action,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "window_title": {"type": "string"},
+                        "action": {"type": "string", "enum": ["click", "type"]},
+                        "automation_id": {"type": "string"},
+                        "control_title": {"type": "string"},
+                        "value": {"type": "string"},
+                    },
+                    "required": ["window_title", "action"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+                capability="ui.automation",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="workspace_list",
+                description="List JARVIS workspaces and favorites.",
+                fn=lambda args: {"workspaces": self.runtime.workspaces.list(int(args.get("limit", 50) or 50))},
+                parameters={
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+                    "additionalProperties": False,
+                },
+                capability="workspace.read",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="workspace_add",
+                description="Register an existing local folder as a named JARVIS workspace.",
+                fn=self._workspace_add,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "path": {"type": "string"},
+                        "favorite": {"type": "boolean"},
+                    },
+                    "required": ["name", "path"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+                capability="workspace.manage",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="file_index_workspace",
+                description="Index filenames and paths of a registered workspace with SQLite FTS5.",
+                fn=self._index_workspace,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "workspace_id": {"type": "string"},
+                        "max_files": {"type": "integer", "minimum": 100, "maximum": 200000},
+                    },
+                    "required": ["workspace_id"],
+                    "additionalProperties": False,
+                },
+                capability="files.index",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="file_search",
+                description="Search the indexed workspace file catalog by filename and path.",
+                fn=lambda args: {
+                    "results": self.runtime.file_index.search(
+                        str(args.get("query", "")),
+                        workspace_id=str(args.get("workspace_id", "")).strip() or None,
+                        limit=int(args.get("limit", 50) or 50),
+                    )
+                },
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "workspace_id": {"type": "string"},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+                capability="files.search",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="mission_list",
+                description="List persistent JARVIS missions.",
+                fn=lambda args: {"missions": self.runtime.missions.list(int(args.get("limit", 50) or 50))},
+                parameters={
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+                    "additionalProperties": False,
+                },
+                capability="system.read",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="mission_create",
+                description="Create a persistent mission with its own operative operator id.",
+                fn=self._mission_create,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "workspace_id": {"type": "string"},
+                        "mode": {"type": "string", "enum": ["operative", "standard", "research"]},
+                    },
+                    "required": ["title"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+                capability="mission.manage",
+            )
+        )
+
+        self.tools.register(
+            Tool(
                 name="operative_state_get",
                 description="Read persistent state for the current operative agent.",
                 fn=lambda _: {
@@ -454,6 +727,31 @@ class JarvisAgent:
                     "additionalProperties": False,
                 },
             )
+        )
+
+    def _workspace_add(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.runtime.workspaces.add(
+            str(args.get("name", "")),
+            str(args.get("path", "")),
+            bool(args.get("favorite", False)),
+        )
+
+    def _index_workspace(self, args: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = str(args.get("workspace_id", "")).strip()
+        workspace = self.runtime.workspaces.get(workspace_id)
+        if workspace is None:
+            raise ValueError("Workspace introuvable.")
+        return self.runtime.file_index.index_workspace(
+            workspace_id,
+            str(workspace["root_path"]),
+            max_files=int(args.get("max_files", 50000) or 50000),
+        )
+
+    def _mission_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.runtime.missions.create(
+            str(args.get("title", "")),
+            workspace_id=str(args.get("workspace_id", "")).strip() or None,
+            mode=str(args.get("mode", "operative") or "operative"),
         )
 
     def _operative_state_set(self, args: dict[str, Any]) -> dict[str, Any]:
