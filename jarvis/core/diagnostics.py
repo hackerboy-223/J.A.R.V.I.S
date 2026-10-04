@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import faulthandler
+import json
 import logging
+import platform
 from logging.handlers import RotatingFileHandler
 import shutil
 import sqlite3
 import sys
 import threading
 import traceback
+import zipfile
+from datetime import datetime, timezone
 from contextlib import closing
 from pathlib import Path
 from typing import Any, Callable
@@ -128,3 +132,37 @@ def health_snapshot(
 
     overall = all(bool(item.get("ok")) for item in checks.values())
     return {"ok": overall, "checks": checks, "data_dir": str(DATA_DIR)}
+
+
+def export_diagnostic_bundle(snapshot: dict[str, Any] | None = None) -> Path:
+    """Create a local support bundle containing diagnostics only, never .env/secrets."""
+    target_dir = DATA_DIR / "diagnostics"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive = target_dir / f"JARVIS-diagnostics-{stamp}.zip"
+
+    health = snapshot or health_snapshot()
+    runtime = {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "data_dir": str(DATA_DIR),
+        "workspace": str(settings.workspace_root),
+    }
+
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        bundle.writestr(
+            "health.json",
+            json.dumps(health, ensure_ascii=False, indent=2, default=str),
+        )
+        bundle.writestr(
+            "runtime.json",
+            json.dumps(runtime, ensure_ascii=False, indent=2, default=str),
+        )
+        log_dir = DATA_DIR / "logs"
+        if log_dir.exists():
+            for path in log_dir.glob("*.log*"):
+                if path.is_file() and path.stat().st_size <= 5_000_000:
+                    bundle.write(path, arcname=f"logs/{path.name}")
+
+    return archive
