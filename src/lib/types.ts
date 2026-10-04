@@ -7,7 +7,7 @@ export type ChatRole = "user" | "assistant" | "tool";
 export type EngineMode = "auto" | "hf" | "demo";
 
 /** Moteur réellement utilisé pour une réponse */
-export type ActiveEngine = "hf" | "demo";
+export type ActiveEngine = "hf" | "demo" | "core";
 
 export interface ToolCallInfo {
   tool: string;
