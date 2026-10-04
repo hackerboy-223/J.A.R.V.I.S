@@ -853,7 +853,7 @@ class MainWindow(QMainWindow):
             self._activate_mission(str(mission["id"]))
 
     def _open_settings(self) -> None:
-        SettingsDialog(self).exec()
+        SettingsDialog(self.agent, self).exec()
 
     def _stop_all(self) -> None:
         cancelled = self.agent.stop_all()
