@@ -78,28 +78,58 @@ class VoskHandsFreeListener:
             )
         return result
 
-    def _selected_device(self) -> int | None:
+    def _selected_device(self) -> tuple[int | None, dict]:
         requested = settings.audio_device.strip()
         devices = sd.query_devices()
 
         if requested:
             if requested.isdigit():
                 idx = int(requested)
-                if int(devices[idx].get("max_input_channels", 0)) <= 0:
+                dev = devices[idx]
+                if int(dev.get("max_input_channels", 0)) <= 0:
                     raise RuntimeError("Le périphérique choisi n'a pas d'entrée micro.")
-                return idx
+                return idx, dev
 
             lowered = requested.lower()
             for idx, dev in enumerate(devices):
                 name = str(dev.get("name", ""))
                 if int(dev.get("max_input_channels", 0)) > 0 and lowered in name.lower():
-                    return idx
+                    return idx, dev
             raise RuntimeError(f"Micro configuré introuvable : {requested}")
 
         default_input = sd.default.device[0]
         if default_input is None or int(default_input) < 0:
             raise RuntimeError("Aucun microphone Windows par défaut n'est configuré.")
-        return int(default_input)
+
+        idx = int(default_input)
+        return idx, devices[idx]
+
+    @staticmethod
+    def _supported_sample_rate(device: int | None, info: dict) -> int:
+        default_rate = int(float(info.get("default_samplerate", 16000) or 16000))
+        candidates = (16000, default_rate, 48000, 44100)
+        attempted: list[int] = []
+
+        for rate in candidates:
+            if rate <= 0 or rate in attempted:
+                continue
+            attempted.append(rate)
+            try:
+                sd.check_input_settings(
+                    device=device,
+                    channels=1,
+                    dtype="int16",
+                    samplerate=rate,
+                )
+                return rate
+            except Exception:
+                continue
+
+        name = str(info.get("name", f"Micro {device}"))
+        raise RuntimeError(
+            f"Le microphone « {name} » est détecté mais aucun format audio "
+            f"compatible n'a pu être ouvert ({', '.join(map(str, attempted))} Hz)."
+        )
 
     def _model_path(self) -> Path:
         custom = settings.vosk_model_path.strip()
@@ -153,7 +183,13 @@ class VoskHandsFreeListener:
         if self._shutdown.is_set():
             raise RuntimeError("Le moteur vocal est déjà arrêté.")
 
-        device = self._selected_device()
+        device, device_info = self._selected_device()
+        self.sample_rate = self._supported_sample_rate(device, device_info)
+        self.on_status(
+            f"MIC · {device_info.get('name', f'Micro {device}')} · "
+            f"{self.sample_rate} Hz"
+        )
+
         model = self._ensure_model()
 
         self._drain_queue()
@@ -163,15 +199,21 @@ class VoskHandsFreeListener:
         recognizer = KaldiRecognizer(model, self.sample_rate)
         recognizer.SetWords(False)
 
-        self._stream = sd.RawInputStream(
-            samplerate=self.sample_rate,
-            blocksize=4000,
-            device=device,
-            dtype="int16",
-            channels=1,
-            callback=self._callback,
-        )
-        self._stream.start()
+        try:
+            self._stream = sd.RawInputStream(
+                samplerate=self.sample_rate,
+                blocksize=max(2000, int(self.sample_rate * 0.125)),
+                device=device,
+                dtype="int16",
+                channels=1,
+                latency="high",
+                callback=self._callback,
+            )
+            self._stream.start()
+        except Exception:
+            self._active.clear()
+            self.stop()
+            raise
 
         self._thread = threading.Thread(
             target=self._loop,
@@ -181,8 +223,10 @@ class VoskHandsFreeListener:
         )
         self._thread.start()
 
-        device_name = str(sd.query_devices(device).get("name", f"Micro {device}"))
-        self.on_status(f"LISTENING · {device_name} · VOSK FR")
+        device_name = str(device_info.get("name", f"Micro {device}"))
+        self.on_status(
+            f"LISTENING · {device_name} · {self.sample_rate} Hz · VOSK FR"
+        )
 
     def stop(self) -> None:
         self._active.clear()
@@ -233,7 +277,8 @@ class VoskHandsFreeListener:
         if self._active.is_set():
             self.stop()
 
-        device = self._selected_device()
+        device, device_info = self._selected_device()
+        self.sample_rate = self._supported_sample_rate(device, device_info)
         model = self._ensure_model()
 
         self._drain_keyword_queue()
@@ -247,15 +292,21 @@ class VoskHandsFreeListener:
         recognizer = KaldiRecognizer(model, self.sample_rate, grammar)
         recognizer.SetWords(False)
 
-        self._keyword_stream = sd.RawInputStream(
-            samplerate=self.sample_rate,
-            blocksize=2000,
-            device=device,
-            dtype="int16",
-            channels=1,
-            callback=self._keyword_callback,
-        )
-        self._keyword_stream.start()
+        try:
+            self._keyword_stream = sd.RawInputStream(
+                samplerate=self.sample_rate,
+                blocksize=max(1600, int(self.sample_rate * 0.08)),
+                device=device,
+                dtype="int16",
+                channels=1,
+                latency="high",
+                callback=self._keyword_callback,
+            )
+            self._keyword_stream.start()
+        except Exception:
+            self._keyword_active.clear()
+            self.stop_keyword_monitor()
+            raise
 
         self._keyword_thread = threading.Thread(
             target=self._keyword_loop,
