@@ -332,20 +332,24 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
             def progress(message: str) -> None:
                 loop.call_soon_threadsafe(queue.put_nowait, ("progress", message))
 
-            async def produce() -> None:
-                answer = await asyncio.to_thread(
-                    jarvis.ask,
-                    user_text,
-                    mode,
-                    progress,
-                    operator_id,
-                )
-                await queue.put(("answer", answer))
-                await queue.put(("done", ""))
+            def stream_worker() -> None:
+                try:
+                    for delta in jarvis.stream(
+                        user_text,
+                        mode=mode,
+                        progress=progress,
+                        operator_id=operator_id,
+                    ):
+                        loop.call_soon_threadsafe(queue.put_nowait, ("delta", str(delta)))
+                except Exception as exc:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("done", ""))
 
-            asyncio.create_task(produce())
+            asyncio.create_task(asyncio.to_thread(stream_worker))
 
             async def event_stream():
+                first_delta = True
                 while True:
                     kind, value = await queue.get()
                     if kind == "progress":
@@ -359,30 +363,45 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
                         }
                         yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
                         continue
-                    if kind == "answer":
-                        words = value.split(" ")
-                        for index in range(0, len(words), 8):
-                            chunk_text = " ".join(words[index:index + 8])
-                            if index + 8 < len(words):
-                                chunk_text += " "
-                            event = {
-                                "id": completion_id,
-                                "object": "chat.completion.chunk",
-                                "created": created,
-                                "model": model,
-                                "choices": [
-                                    {
-                                        "index": 0,
-                                        "delta": {
-                                            **({"role": "assistant"} if index == 0 else {}),
-                                            "content": chunk_text,
-                                        },
-                                        "finish_reason": None,
-                                    }
-                                ],
-                            }
-                            yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+
+                    if kind == "delta":
+                        event = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        **({"role": "assistant"} if first_delta else {}),
+                                        "content": value,
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        first_delta = False
+                        yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
                         continue
+
+                    if kind == "error":
+                        event = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": f"Erreur streaming : {value}"},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+                        continue
+
                     final = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
