@@ -35,6 +35,9 @@ def _serve(host: str | None, port: int | None) -> int:
 
 
 def main() -> int:
+    from jarvis.core.logging_setup import install_crash_hooks
+    install_crash_hooks()
+
     argv = sys.argv[1:]
     if argv and argv[0] == "--jarvis-sandbox-runner":
         if len(argv) != 1:
