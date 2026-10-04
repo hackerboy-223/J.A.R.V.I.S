@@ -235,6 +235,13 @@ class JobManager:
             ids = list(self._cancellations)
         return sum(1 for job_id in ids if self.cancel(job_id))
 
+    def wait(self, job_id: str, timeout: float | None = None) -> dict[str, Any] | None:
+        with self._lock:
+            thread = self._threads.get(job_id)
+        if thread is not None:
+            thread.join(timeout=timeout)
+        return self.get(job_id)
+
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock, closing(self._connect()) as db:
             row = db.execute("SELECT * FROM runtime_jobs WHERE id=?", (job_id,)).fetchone()
