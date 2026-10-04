@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from jarvis.config import DATA_DIR
+from jarvis.config import DATA_DIR, settings
 
 
 _VERSION_RE = re.compile(r"\d+")
@@ -19,8 +19,8 @@ def _version_tuple(value: str) -> tuple[int, ...]:
 
 
 class UpdateService:
-    def __init__(self, repository: str = "hackerboy-223/J.A.R.V.I.S") -> None:
-        self.repository = repository
+    def __init__(self, repository: str | None = None) -> None:
+        self.repository = repository or settings.update_repository
 
     def latest(self, current_version: str) -> dict[str, Any]:
         response = httpx.get(
@@ -59,6 +59,17 @@ class UpdateService:
             "assets": assets,
             "page": data.get("html_url"),
         }
+
+    @staticmethod
+    def pick_installer(info: dict[str, Any]) -> dict[str, Any] | None:
+        assets = info.get("assets") or []
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            name = str(asset.get("name") or "").lower()
+            if name.endswith(".exe") and ("setup" in name or "installer" in name):
+                return asset
+        return None
 
     def download(self, asset: dict[str, Any]) -> dict[str, Any]:
         url = str(asset.get("url") or "")
