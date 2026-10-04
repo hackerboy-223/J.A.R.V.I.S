@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from difflib import unified_diff
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,18 @@ def _resolve_workspace_path(raw: str) -> Path:
     return candidate
 
 
+def workspace_path(raw: str) -> Path:
+    """Resolve a user-facing workspace path using the same safety policy as file tools."""
+    return _resolve_workspace_path(raw)
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".jarvis.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
 def file_read(args: dict[str, Any]) -> dict[str, Any]:
     path = _resolve_workspace_path(str(args.get("path", "")))
     if not path.exists() or not path.is_file():
@@ -70,8 +83,7 @@ def file_write(args: dict[str, Any]) -> dict[str, Any]:
     if path.exists() and not path.is_file():
         raise ValueError("La cible existe mais n'est pas un fichier.")
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    _atomic_write(path, content)
     return {
         "written": True,
         "path": str(path.relative_to(_workspace_root())),
@@ -103,9 +115,43 @@ def file_patch(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
-    path.write_text(updated, encoding="utf-8")
+    _atomic_write(path, updated)
     return {
         "patched": True,
         "path": str(path.relative_to(_workspace_root())),
         "replacements": occurrences if replace_all else 1,
+    }
+
+
+def file_patch_preview(args: dict[str, Any]) -> dict[str, Any]:
+    path = _resolve_workspace_path(str(args.get("path", "")))
+    old = str(args.get("old", ""))
+    new = str(args.get("new", ""))
+    replace_all = bool(args.get("replace_all", False))
+    if not old:
+        raise ValueError("old est requis pour un preview de patch.")
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"Fichier introuvable : {path.name}")
+    text = path.read_text(encoding="utf-8", errors="strict")
+    occurrences = text.count(old)
+    if occurrences == 0:
+        raise ValueError("Le bloc exact à remplacer n'a pas été trouvé.")
+    if occurrences > 1 and not replace_all:
+        raise ValueError(
+            f"Le bloc apparaît {occurrences} fois. Affinez old ou utilisez replace_all=true."
+        )
+    updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+    diff = "".join(
+        unified_diff(
+            text.splitlines(keepends=True),
+            updated.splitlines(keepends=True),
+            fromfile=f"a/{path.name}",
+            tofile=f"b/{path.name}",
+        )
+    )
+    return {
+        "path": str(path.relative_to(_workspace_root())),
+        "occurrences": occurrences,
+        "diff": diff[:120_000],
+        "truncated": len(diff) > 120_000,
     }
