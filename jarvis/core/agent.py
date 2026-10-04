@@ -851,13 +851,45 @@ class JarvisAgent:
             return {"ok": False, "error": str(exc)}
 
         progress(f"TOOL · {name.upper()}")
-        if tool.requires_confirmation and not self.confirm(self._confirm_summary(name, args)):
-            return {"ok": False, "error": "Action refusée par l'utilisateur"}
+        summary = self._confirm_summary(name, args)
+        if tool.capability:
+            allowed = self.runtime.permissions.authorize(
+                tool.capability,
+                summary,
+                self.confirm,
+            )
+            if not allowed:
+                result = {"ok": False, "error": "Action refusée par la politique d'autorisation"}
+                self.memory.log_action(name, args, result)
+                self.runtime.activity.log(
+                    "tool", name, status="denied", summary=summary, details={"args": args}
+                )
+                self.runtime.events.emit(
+                    "permission.denied",
+                    {"tool": name, "capability": tool.capability},
+                )
+                return result
+        elif tool.requires_confirmation and not self.confirm(summary):
+            result = {"ok": False, "error": "Action refusée par l'utilisateur"}
+            self.memory.log_action(name, args, result)
+            return result
 
+        self.runtime.events.emit(
+            "tool.started",
+            {"tool": name, "capability": tool.capability, "args": args},
+        )
         try:
             result = {"ok": True, "data": self.tools.execute(name, args)}
+            self.runtime.activity.log(
+                "tool", name, summary=f"{name} terminé", details={"args": args}
+            )
+            self.runtime.events.emit("tool.completed", {"tool": name, "result": result["data"]})
         except Exception as exc:
             result = {"ok": False, "error": str(exc)}
+            self.runtime.activity.log(
+                "tool", name, status="error", summary=str(exc), details={"args": args}
+            )
+            self.runtime.events.emit("tool.failed", {"tool": name, "error": str(exc)})
         self.memory.log_action(name, args, result)
         return result
 
@@ -876,15 +908,11 @@ class JarvisAgent:
             return None
 
         progress(f"LOCAL · {name.upper()}")
-        if tool.requires_confirmation and not self.confirm(self._confirm_summary(name, args)):
-            return "Action locale annulée."
+        outcome = self._execute_tool(name, args, lambda _: None)
+        if not outcome.get("ok"):
+            return f"Action locale impossible : {outcome.get('error', 'refusée')}"
 
-        try:
-            result = self.tools.execute(name, args)
-        except Exception as exc:
-            return f"Action locale impossible : {exc}"
-
-        self.memory.log_action(name, args, {"ok": True, "data": result})
+        result = outcome.get("data") or {}
         if name == "system_status":
             return (
                 f"CPU {result.get('cpu_percent', '?')} %, "
@@ -1057,5 +1085,39 @@ class JarvisAgent:
         self.memory.add_message("assistant", answer)
         return answer
 
+    def submit(
+        self,
+        user_text: str,
+        *,
+        mode: str = "standard",
+        operator_id: str = "main",
+        on_progress: ProgressFn | None = None,
+    ) -> str:
+        clean = user_text.strip()
+        if not clean:
+            raise ValueError("Instruction vide.")
+
+        def runner(ctx):
+            def progress(message: str) -> None:
+                ctx.progress(None, message)
+                if on_progress is not None:
+                    on_progress(message)
+
+            ctx.checkpoint()
+            answer = self.ask(clean, mode=mode, progress=progress, operator_id=operator_id)
+            ctx.checkpoint()
+            return {"answer": answer}
+
+        return self.runtime.jobs.submit(
+            clean[:180],
+            runner,
+            kind="agent",
+            metadata={"mode": mode, "operator_id": operator_id},
+        )
+
+    def stop_all(self) -> int:
+        return self.runtime.stop_all()
+
     def shutdown(self) -> None:
+        self.runtime.stop_all()
         self.scheduler.stop()
