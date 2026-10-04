@@ -8,6 +8,7 @@ import { isValidToolCall } from "@/lib/agent/parse";
 import { resolveModel, isStarkModel, MAX_CONTEXT_MESSAGES, type ActiveEngine, type ChatSseEvent } from "@/lib/types";
 import { requireAuthorized } from "@/lib/server/auth";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
+import { proxyPythonCoreChat, pythonCoreEnabled } from "@/lib/server/python-core";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -59,6 +60,14 @@ export async function POST(req: NextRequest) {
   }
   if (content.length > MAX_USER_CHARS) {
     return Response.json({ error: "Message trop long (32 000 caractères max)" }, { status: 400 });
+  }
+
+  if (pythonCoreEnabled()) {
+    return proxyPythonCoreChat(req, {
+      conversationId,
+      content,
+      voiceMode,
+    });
   }
 
   // Réglages + résolution du moteur
