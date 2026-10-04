@@ -79,6 +79,28 @@ class ChangeJournal:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get(self, change_id: str) -> dict[str, Any] | None:
+        with self._lock, closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT * FROM file_changes WHERE id=?",
+                (change_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        item = dict(row)
+        item["diff"] = self.diff(
+            str(item["path"]),
+            str(item.get("before_text") or ""),
+            str(item.get("after_text") or ""),
+        )
+        return item
+
+    def diff_for(self, change_id: str) -> str:
+        item = self.get(change_id)
+        if item is None:
+            raise ValueError("Modification introuvable.")
+        return str(item.get("diff") or "")
+
     def undo(self, change_id: str) -> dict[str, Any]:
         with self._lock, closing(self._connect()) as db:
             row = db.execute(
