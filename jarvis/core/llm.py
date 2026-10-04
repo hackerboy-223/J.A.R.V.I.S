@@ -211,6 +211,158 @@ class LLMClient:
         data = response.json()
         return {"message": data["choices"][0]["message"]}
 
+    @staticmethod
+    def _stream_openai_endpoint(
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        on_delta,
+    ) -> dict[str, Any]:
+        request = dict(payload)
+        request["stream"] = True
+        content_parts: list[str] = []
+        tool_calls: dict[int, dict[str, Any]] = {}
+
+        with httpx.stream(
+            "POST",
+            url,
+            headers=headers,
+            json=request,
+            timeout=90,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw or raw == "[DONE]":
+                    continue
+                try:
+                    chunk = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                text = delta.get("content")
+                if isinstance(text, str) and text:
+                    content_parts.append(text)
+                    if on_delta is not None:
+                        on_delta(text)
+
+                for call in delta.get("tool_calls") or []:
+                    if not isinstance(call, dict):
+                        continue
+                    index = int(call.get("index", 0) or 0)
+                    current = tool_calls.setdefault(
+                        index,
+                        {
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        },
+                    )
+                    if call.get("id"):
+                        current["id"] = str(call["id"])
+                    if call.get("type"):
+                        current["type"] = str(call["type"])
+                    function = call.get("function") or {}
+                    if function.get("name"):
+                        current["function"]["name"] += str(function["name"])
+                    if function.get("arguments"):
+                        current["function"]["arguments"] += str(function["arguments"])
+
+        message: dict[str, Any] = {
+            "role": "assistant",
+            "content": "".join(content_parts),
+        }
+        if tool_calls:
+            message["tool_calls"] = [tool_calls[key] for key in sorted(tool_calls)]
+        return {"message": message}
+
+    def stream_complete(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        on_delta=None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.4,
+            "max_tokens": 1536,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        if self.provider in {"openrouter", "open_router"} or "openrouter.ai" in self.base_url:
+            if not self.api_key:
+                raise RuntimeError("Clé OpenRouter absente.")
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "X-Title": self.openrouter_title or "J.A.R.V.I.S.",
+            }
+            if self.openrouter_referer:
+                headers["HTTP-Referer"] = self.openrouter_referer
+            try:
+                return self._stream_openai_endpoint(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers,
+                    payload,
+                    on_delta,
+                )
+            except Exception as openrouter_exc:
+                fallback = dict(payload)
+                fallback["model"] = self.ollama_model
+                try:
+                    return self._stream_openai_endpoint(
+                        f"{self.ollama_base_url}/chat/completions",
+                        {"Content-Type": "application/json"},
+                        fallback,
+                        on_delta,
+                    )
+                except Exception as ollama_exc:
+                    raise RuntimeError(
+                        f"Streaming indisponible. OpenRouter: {openrouter_exc} | Ollama: {ollama_exc}"
+                    ) from openrouter_exc
+
+        if self.provider in {"ollama", "local"}:
+            payload["model"] = self.ollama_model
+            return self._stream_openai_endpoint(
+                f"{self.ollama_base_url}/chat/completions",
+                {"Content-Type": "application/json"},
+                payload,
+                on_delta,
+            )
+
+        if self.provider in {"huggingface", "hf"}:
+            # Hugging Face providers do not expose a uniform OpenAI SSE surface.
+            # Preserve correctness and emit the final text as one delta.
+            result = self._complete_huggingface(messages, tools)
+            text = str((result.get("message") or {}).get("content") or "")
+            if text and on_delta is not None:
+                on_delta(text)
+            return result
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        if not self.api_key and not self._is_local():
+            result = self._complete_openai_compatible(messages, tools)
+            text = str((result.get("message") or {}).get("content") or "")
+            if text and on_delta is not None:
+                on_delta(text)
+            return result
+        return self._stream_openai_endpoint(
+            f"{self.base_url}/chat/completions",
+            headers,
+            payload,
+            on_delta,
+        )
+
     def complete(
         self,
         messages: list[dict[str, Any]],
