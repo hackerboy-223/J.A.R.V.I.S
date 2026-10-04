@@ -2,7 +2,7 @@ param(
     [switch]$SkipInstaller
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"\n\n# Keep Windows PowerShell output readable when this UTF-8 script prints accents.\n$utf8 = New-Object System.Text.UTF8Encoding($false)\n[Console]::OutputEncoding = $utf8\n$OutputEncoding = $utf8
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
