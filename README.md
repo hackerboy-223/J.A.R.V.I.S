@@ -867,13 +867,14 @@ python -m jarvis selftest
 .\packaging\build-windows.ps1
 ```
 
-Sortie prévue :
+Sorties prévues :
 
 ```text
+dist/JARVIS-Setup-x64.exe
 dist/JARVIS-Windows-x64.zip
 ```
 
-Le build est volontairement en dossier plutôt qu'en exécutable one-file afin de réduire les problèmes liés aux bibliothèques natives Qt/audio.
+`JARVIS-Setup-x64.exe` est le véritable installateur Windows per-user (Inno Setup) avec raccourcis et désinstallation. Le ZIP reste disponible comme version portable. Le runtime PyInstaller reste volontairement en dossier afin de réduire les problèmes liés aux bibliothèques natives Qt/audio.
 
 ---
 
