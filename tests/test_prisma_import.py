@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ class PrismaImportTests(unittest.TestCase):
             target = root / "new.db"
             data = root / "data"
 
-            with sqlite3.connect(source) as db:
+            with closing(sqlite3.connect(source)) as db:
                 db.executescript(
                     """
                     CREATE TABLE Conversation (
@@ -67,7 +68,7 @@ class PrismaImportTests(unittest.TestCase):
             self.assertEqual(second["messages"], 1)
             self.assertTrue(Path(first["backup"]).exists())
 
-            with sqlite3.connect(target) as db:
+            with closing(sqlite3.connect(target)) as db:
                 conversations = db.execute(
                     "SELECT COUNT(*) FROM imported_conversations"
                 ).fetchone()[0]
