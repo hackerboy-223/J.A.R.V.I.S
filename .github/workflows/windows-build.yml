@@ -1,9 +1,19 @@
-name: Windows executable
+name: Windows installer
 
 on:
   push:
     branches:
-      - python-agent-rewrite
+      - main
+    paths:
+      - ".github/workflows/windows-build.yml"
+      - "jarvis/**"
+      - "main.py"
+      - "packaging/**"
+      - "pyproject.toml"
+      - "tests/**"
+  pull_request:
+    branches:
+      - main
     paths:
       - ".github/workflows/windows-build.yml"
       - "jarvis/**"
@@ -19,7 +29,8 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -31,21 +42,34 @@ jobs:
           cache: pip
 
       - name: Install application and packager
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[build]"
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[build]"
+
+      - name: Compile Python sources
+        run: python -m compileall -q jarvis tests
 
       - name: Run regression tests
         run: |
           python -m unittest discover -s tests -v
-          python -m jarvis.selftest
+          python -m jarvis selftest
 
-      - name: Build and archive Windows app
+      - name: Install Inno Setup
+        if: github.event_name != 'pull_request'
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows installer
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: ./packaging/build-windows.ps1
 
-      - name: Upload Windows build
+      - name: Upload Windows package
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-Windows-x64
-          path: dist/JARVIS-Windows-x64.zip
+          path: |
+            dist/JARVIS-Setup-x64.exe
+            dist/JARVIS-Windows-x64.zip
           if-no-files-found: error
           retention-days: 14
