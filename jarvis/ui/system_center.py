@@ -51,6 +51,7 @@ class SystemCenterDialog(QDialog):
         self.health_table = _table(["Composant", "État", "Détail"])
         self.missions_table = _table(["ID", "Titre", "État", "Mode", "Mise à jour"])
         self.workspaces_table = _table(["ID", "Nom", "Favori", "Chemin"])
+        self.recent_files_table = _table(["Date", "Action", "Fichier"])
 
         self.tabs.addTab(self._permission_tab(), "Permissions")
         self.tabs.addTab(self._simple_tab(self.jobs_table, self._refresh_jobs, self._cancel_job), "Jobs")
@@ -59,6 +60,7 @@ class SystemCenterDialog(QDialog):
         self.tabs.addTab(self._simple_tab(self.health_table, self._refresh_health), "Health")
         self.tabs.addTab(self._mission_tab(), "Missions")
         self.tabs.addTab(self._simple_tab(self.workspaces_table, self._refresh_workspaces), "Workspaces")
+        self.tabs.addTab(self._simple_tab(self.recent_files_table, self._refresh_recent_files), "Recent Files")
 
         close = QPushButton("FERMER")
         close.clicked.connect(self.accept)
@@ -285,6 +287,17 @@ class SystemCenterDialog(QDialog):
         ]
         self._fill(self.workspaces_table, rows)
 
+    def _refresh_recent_files(self) -> None:
+        rows = [
+            [
+                str(item.get("last_used_at", "")),
+                str(item.get("action", "")),
+                str(item.get("path", "")),
+            ]
+            for item in self.agent.runtime.recent_files.list(100)
+        ]
+        self._fill(self.recent_files_table, rows)
+
     def refresh_all(self) -> None:
         self._refresh_permissions()
         self._refresh_jobs()
@@ -293,3 +306,4 @@ class SystemCenterDialog(QDialog):
         self._refresh_health()
         self._refresh_missions()
         self._refresh_workspaces()
+        self._refresh_recent_files()
