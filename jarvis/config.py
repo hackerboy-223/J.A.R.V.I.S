@@ -32,6 +32,17 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(raw or default).expanduser().resolve()
 
 
+def _secret(env_name: str, secret_name: str | None = None) -> str:
+    direct = os.getenv(env_name, "").strip()
+    if direct:
+        return direct
+    try:
+        from jarvis.core.secrets import SecretStore
+        return SecretStore().get(secret_name or env_name)
+    except Exception:
+        return ""
+
+
 DEFAULT_WORKSPACE_DIR = DATA_DIR / "workspace" if IS_FROZEN else ROOT
 DEFAULT_SKILLS_DIR = DATA_DIR / "skills" if IS_FROZEN else ROOT / "skills"
 
@@ -40,17 +51,17 @@ DEFAULT_SKILLS_DIR = DATA_DIR / "skills" if IS_FROZEN else ROOT / "skills"
 class Settings:
     llm_provider: str = os.getenv("JARVIS_LLM_PROVIDER", "openrouter").strip().lower()
     llm_base_url: str = os.getenv("JARVIS_LLM_BASE_URL", "https://openrouter.ai/api/v1")
-    llm_api_key: str = os.getenv(
-        "OPENROUTER_API_KEY",
-        os.getenv("JARVIS_LLM_API_KEY", ""),
+    llm_api_key: str = (
+        _secret("OPENROUTER_API_KEY")
+        or _secret("JARVIS_LLM_API_KEY")
     )
     llm_model: str = os.getenv("JARVIS_LLM_MODEL", "openrouter/free")
     openrouter_referer: str = os.getenv("OPENROUTER_HTTP_REFERER", "").strip()
     openrouter_title: str = os.getenv("OPENROUTER_X_TITLE", "J.A.R.V.I.S.").strip()
-    hf_token: str = os.getenv("HF_TOKEN", os.getenv("HUGGING_FACE_HUB_TOKEN", ""))
+    hf_token: str = _secret("HF_TOKEN") or _secret("HUGGING_FACE_HUB_TOKEN")
     hf_model: str = os.getenv("JARVIS_HF_MODEL", "zai-org/GLM-5.3-Flash")
     hf_provider: str = os.getenv("JARVIS_HF_PROVIDER", "auto")
-    exa_api_key: str = os.getenv("EXA_API_KEY", "").strip()
+    exa_api_key: str = _secret("EXA_API_KEY")
     exa_snippet_chars: int = max(
         400,
         min(6000, int(os.getenv("JARVIS_EXA_SNIPPET_CHARS", "1800"))),
@@ -82,7 +93,7 @@ class Settings:
         "JARVIS_CONFIRM_SAFE_PC_ACTIONS", "false"
     ).lower() == "true"
     stt_provider: str = os.getenv("JARVIS_STT_PROVIDER", "hybrid").strip().lower()
-    groq_api_key: str = os.getenv("GROQ_API_KEY", "").strip()
+    groq_api_key: str = _secret("GROQ_API_KEY")
     groq_stt_model: str = os.getenv(
         "JARVIS_GROQ_STT_MODEL", "whisper-large-v3-turbo"
     ).strip()
