@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import faulthandler
+import importlib.metadata
+import os
 import platform
 import queue
 import sys
@@ -34,6 +36,7 @@ from jarvis.config import settings
 from jarvis.core.agent import JarvisAgent
 from jarvis.core.diagnostics import install_crash_hooks
 from jarvis.core.preferences import Preferences
+from jarvis.core.updater import UpdateService
 from jarvis.profile import OWNER_PROFILE
 from jarvis.ui.neural_widget import NeuralCoreWidget
 from jarvis.ui.first_run import FirstRunWizard
@@ -55,6 +58,9 @@ class Bridge(QObject):
     speech_finished = Signal()
     confirm_request = Signal(object)
     runtime_event = Signal(object)
+    update_result = Signal(object)
+    update_downloaded = Signal(object)
+    update_error = Signal(str)
 
 
 class MainWindow(QMainWindow):
@@ -75,10 +81,14 @@ class MainWindow(QMainWindow):
         self.bridge.speech_finished.connect(self._on_speech_finished)
         self.bridge.confirm_request.connect(self._handle_confirm_request)
         self.bridge.runtime_event.connect(self._on_runtime_event)
+        self.bridge.update_result.connect(self._on_update_result)
+        self.bridge.update_downloaded.connect(self._on_update_downloaded)
+        self.bridge.update_error.connect(self._on_update_error)
 
         self.speaker = Speaker()
         self.agent = JarvisAgent(confirm=self._confirm_action)
         self.preferences = Preferences()
+        self.updater = UpdateService()
         self._quitting = False
         self._active_job_id: str | None = None
         self._event_subscription = self.agent.runtime.events.subscribe()
@@ -100,6 +110,7 @@ class MainWindow(QMainWindow):
             daemon=True,
         )
         self._event_thread.start()
+        QTimer.singleShot(2500, self._auto_check_update)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -633,6 +644,10 @@ class MainWindow(QMainWindow):
         voice_action.triggered.connect(self._toggle_voice)
         menu.addAction(voice_action)
 
+        update_action = QAction("Vérifier les mises à jour", self)
+        update_action.triggered.connect(lambda: self._check_updates(manual=True))
+        menu.addAction(update_action)
+
         menu.addSeparator()
         quit_action = QAction("Quitter", self)
         quit_action.triggered.connect(self._quit_application)
@@ -679,6 +694,109 @@ class MainWindow(QMainWindow):
                 QSystemTrayIcon.MessageIcon.Warning,
                 7000,
             )
+
+    @staticmethod
+    def _current_version() -> str:
+        try:
+            return importlib.metadata.version("jarvis-desktop")
+        except importlib.metadata.PackageNotFoundError:
+            return "0.1.0"
+
+    def _auto_check_update(self) -> None:
+        if not self.preferences.get_bool("desktop/auto_update_check", True):
+            return
+        try:
+            last = float(self.preferences.get("updates/last_check_epoch", 0) or 0)
+        except (TypeError, ValueError):
+            last = 0.0
+        if time.time() - last < 86400:
+            return
+        self._check_updates(manual=False)
+
+    def _check_updates(self, manual: bool = False) -> None:
+        self.preferences.set("updates/last_check_epoch", time.time())
+
+        def worker() -> None:
+            try:
+                info = self.updater.latest(self._current_version())
+                info["manual"] = manual
+                self.bridge.update_result.emit(info)
+            except Exception as exc:
+                if manual:
+                    self.bridge.update_error.emit(str(exc))
+
+        threading.Thread(target=worker, name="jarvis-update-check", daemon=True).start()
+
+    def _on_update_result(self, info: object) -> None:
+        if not isinstance(info, dict):
+            return
+        if not info.get("available"):
+            if info.get("manual"):
+                QMessageBox.information(
+                    self,
+                    "Mises à jour",
+                    f"J.A.R.V.I.S. {self._current_version()} est à jour.",
+                )
+            return
+
+        installer = self.updater.pick_installer(info)
+        latest = str(info.get("latest", "nouvelle version"))
+        if installer is None:
+            if self.tray is not None:
+                self.tray.showMessage(
+                    "Mise à jour J.A.R.V.I.S.",
+                    f"{latest} est disponible sur GitHub Releases.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    7000,
+                )
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Mise à jour disponible",
+            f"J.A.R.V.I.S. {latest} est disponible.\n\n"
+            "Télécharger l'installateur maintenant ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        def download_worker() -> None:
+            try:
+                result = self.updater.download(installer)
+                self.bridge.update_downloaded.emit(result)
+            except Exception as exc:
+                self.bridge.update_error.emit(str(exc))
+
+        threading.Thread(
+            target=download_worker,
+            name="jarvis-update-download",
+            daemon=True,
+        ).start()
+
+    def _on_update_downloaded(self, result: object) -> None:
+        if not isinstance(result, dict):
+            return
+        path = str(result.get("path", ""))
+        verified = "SHA-256 vérifié" if result.get("verified") else "SHA-256 calculé localement"
+        answer = QMessageBox.question(
+            self,
+            "Mise à jour téléchargée",
+            f"Installateur prêt. {verified}.\n\nLancer l'installation maintenant ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes and path:
+            try:
+                os.startfile(path)
+            except Exception as exc:
+                QMessageBox.critical(self, "Mise à jour", str(exc))
+                return
+            self._quit_application()
+
+    def _on_update_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Mise à jour", message)
 
     def _show_from_tray(self) -> None:
         self.show()
