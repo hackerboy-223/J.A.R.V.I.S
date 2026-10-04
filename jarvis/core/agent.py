@@ -6,20 +6,32 @@ import threading
 from typing import Any, Callable
 
 from jarvis.config import settings
+from jarvis.core.events import EventBus
+from jarvis.core.file_index import FileIndex
+from jarvis.core.health import HealthService
+from jarvis.core.jobs import JobManager
 from jarvis.core.llm import LLMClient
 from jarvis.core.local_commands import LocalCommandRouter
 from jarvis.core.mcp_bridge import MCPManager
 from jarvis.core.memory import MemoryStore
+from jarvis.core.permissions import PermissionEngine
+from jarvis.core.platform_store import PlatformStore
 from jarvis.core.scheduler import TaskScheduler
 from jarvis.core.skills import SkillManager
 from jarvis.core.tools import Tool, ToolRegistry
+from jarvis.core.undo import UndoManager
+from jarvis.core.updater import UpdateService
 from jarvis.knowledge import KnowledgeBase
 from jarvis.profile import OWNER_PROFILE
+from jarvis.tools.clipboard import clipboard_read, clipboard_write
 from jarvis.tools.files import file_patch, file_read, file_write
 from jarvis.tools.pc import pc_control
 from jarvis.tools.sandbox import python_sandbox
+from jarvis.tools.screen import capture_screen, list_monitors
 from jarvis.tools.system import system_status
+from jarvis.tools.ui_automation import activate_ui, inspect_ui
 from jarvis.tools.web import read_page, web_search
+from jarvis.tools.windows import active_window, focus_window, list_windows
 from jarvis.workflows import WorkflowEngine
 
 
@@ -57,6 +69,14 @@ class JarvisAgent:
     def __init__(self, confirm: Callable[[str], bool] | None = None) -> None:
         self.memory = MemoryStore(settings.database_path)
         self.knowledge = KnowledgeBase(settings.database_path)
+        self.events = EventBus()
+        self.platform = PlatformStore(settings.database_path)
+        self.permissions = PermissionEngine(settings.database_path)
+        self.jobs = JobManager(self.events)
+        self.health = HealthService(self.platform)
+        self.file_index = FileIndex(settings.database_path)
+        self.undo = UndoManager()
+        self.updater = UpdateService()
         self.llm = LLMClient()
         self.local_router = LocalCommandRouter()
         self.workflows = WorkflowEngine(self.llm)
@@ -428,6 +448,135 @@ class JarvisAgent:
             )
         )
 
+        self.tools.register(
+            Tool(
+                name="clipboard_read",
+                description="Read current Windows clipboard text after permission.",
+                fn=clipboard_read,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="clipboard_write",
+                description="Copy text to the Windows clipboard.",
+                fn=clipboard_write,
+                parameters={
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="list_windows",
+                description="List visible Windows desktop windows and their bounds.",
+                fn=list_windows,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="active_window",
+                description="Read the currently focused Windows window.",
+                fn=active_window,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="focus_window",
+                description="Focus or restore a visible window by title.",
+                fn=focus_window,
+                parameters={
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}},
+                    "required": ["title"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="list_monitors",
+                description="List monitors visible to the local Windows session.",
+                fn=list_monitors,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="capture_screen",
+                description="Capture a monitor to a local PNG only when explicitly authorized.",
+                fn=capture_screen,
+                parameters={
+                    "type": "object",
+                    "properties": {"monitor": {"type": "integer", "minimum": 0, "maximum": 16}},
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="inspect_ui",
+                description="Read-only inspection of visible window-level UI information.",
+                fn=inspect_ui,
+                parameters={
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}},
+                    "additionalProperties": False,
+                },
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="activate_ui",
+                description="Safely focus a named visible application window.",
+                fn=activate_ui,
+                parameters={
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}},
+                    "required": ["title"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="search_files",
+                description="Search the local indexed workspace by filename/path.",
+                fn=lambda args: {
+                    "results": self.file_index.search(
+                        str(args.get("query", "")),
+                        limit=int(args.get("limit", 40) or 40),
+                    )
+                },
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="platform_health",
+                description="Read JARVIS platform health and local subsystem status.",
+                fn=lambda _: self.health.snapshot(),
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+        )
+
     def _operative_state_set(self, args: dict[str, Any]) -> dict[str, Any]:
         state = args.get("state")
         if not isinstance(state, dict):
@@ -513,6 +662,35 @@ class JarvisAgent:
             return f"Autoriser {name} pour la tâche {args.get('task_id', '?')} ?"
         return f"Autoriser J.A.R.V.I.S. à exécuter {name} ?"
 
+    @staticmethod
+    def _capability_for_tool(name: str) -> str:
+        mapping = {
+            "system_status": "system.read",
+            "platform_health": "system.read",
+            "knowledge_search": "knowledge.read",
+            "file_read": "files.read",
+            "file_write": "files.write",
+            "file_patch": "files.write",
+            "clipboard_read": "clipboard.read",
+            "clipboard_write": "clipboard.write",
+            "list_windows": "windows.inspect",
+            "active_window": "windows.inspect",
+            "focus_window": "windows.focus",
+            "inspect_ui": "windows.inspect",
+            "activate_ui": "windows.focus",
+            "capture_screen": "screen.read",
+            "list_monitors": "screen.read",
+            "web_search": "network.web",
+            "read_page": "network.web",
+            "mcp_call": "mcp.call",
+            "python_sandbox": "sandbox.run",
+            "schedule_task": "scheduler.write",
+            "pause_scheduled_task": "scheduler.write",
+            "resume_scheduled_task": "scheduler.write",
+            "cancel_scheduled_task": "scheduler.write",
+        }
+        return mapping.get(name, "system.read")
+
     def _execute_tool(
         self,
         name: str,
@@ -525,14 +703,34 @@ class JarvisAgent:
             return {"ok": False, "error": str(exc)}
 
         progress(f"TOOL · {name.upper()}")
-        if tool.requires_confirmation and not self.confirm(self._confirm_summary(name, args)):
-            return {"ok": False, "error": "Action refusée par l'utilisateur"}
+        capability = self._capability_for_tool(name)
+        permission = self.permissions.get(capability)
+        self.events.publish(
+            "tool.started",
+            {"tool": name, "capability": capability, "permission": permission.decision.value},
+        )
+
+        must_confirm = tool.requires_confirmation or permission.decision.value == "ask"
+        if permission.decision.value == "deny":
+            result = {"ok": False, "error": f"Permission refusée : {capability}"}
+            self.platform.log("permission", "denied", {"tool": name, "capability": capability})
+            self.events.publish("tool.denied", {"tool": name, "capability": capability})
+            return result
+
+        if must_confirm and not self.confirm(self._confirm_summary(name, args)):
+            result = {"ok": False, "error": "Action refusée par l'utilisateur"}
+            self.platform.log("permission", "rejected", {"tool": name, "capability": capability})
+            self.events.publish("tool.denied", {"tool": name, "capability": capability})
+            return result
 
         try:
             result = {"ok": True, "data": self.tools.execute(name, args)}
         except Exception as exc:
             result = {"ok": False, "error": str(exc)}
+
         self.memory.log_action(name, args, result)
+        self.platform.log("tool", name, {"args": args, "result": result})
+        self.events.publish("tool.completed", {"tool": name, "result": result})
         return result
 
     def _run_local_fallback(self, clean: str, progress: ProgressFn) -> str | None:
@@ -733,3 +931,6 @@ class JarvisAgent:
 
     def shutdown(self) -> None:
         self.scheduler.stop()
+        self.jobs.shutdown()
+        self.permissions.clear_session()
+        self.events.publish("core.shutdown", {})
