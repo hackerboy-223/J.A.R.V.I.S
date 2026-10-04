@@ -64,9 +64,10 @@ class Bridge(QObject):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, *, diagnostic: bool = False) -> None:
         super().__init__()
         self.setWindowTitle("J.A.R.V.I.S. — H@CKERBOY")
+        self._diagnostic = diagnostic
         self.resize(1100, 720)
 
         self.bridge = Bridge()
@@ -91,6 +92,7 @@ class MainWindow(QMainWindow):
         self.updater = UpdateService()
         self._quitting = False
         self._active_job_id: str | None = None
+        self.active_operator_id = "main"
         self._event_subscription = self.agent.runtime.events.subscribe()
         self.hands_free = False
         self.listener: HandsFreeListener | None = None
@@ -110,7 +112,9 @@ class MainWindow(QMainWindow):
             daemon=True,
         )
         self._event_thread.start()
-        QTimer.singleShot(2500, self._auto_check_update)
+        if not self._diagnostic:
+            QTimer.singleShot(800, self._offer_resume_mission)
+            QTimer.singleShot(2500, self._auto_check_update)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -576,6 +580,7 @@ class MainWindow(QMainWindow):
         job_id = self.agent.submit(
             text,
             mode=mode,
+            operator_id=self.active_operator_id,
             on_progress=lambda status: self.bridge.agent_progress.emit(status),
         )
         self._active_job_id = job_id
@@ -804,7 +809,48 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def _open_control_center(self) -> None:
-        SystemCenterDialog(self.agent, self).exec()
+        SystemCenterDialog(
+            self.agent,
+            self,
+            on_activate_mission=self._activate_mission,
+        ).exec()
+
+    def _activate_mission(self, mission_id: str) -> None:
+        mission = self.agent.runtime.missions.get(mission_id)
+        if mission is None:
+            return
+        self.active_operator_id = str(mission.get("operator_id") or "main")
+        self.preferences.set("missions/active_id", mission_id)
+        index = self.mode_select.findData("operative")
+        if index >= 0:
+            self.mode_select.setCurrentIndex(index)
+        self.chat.append(
+            "<br><b style='color:#ffc864'>MISSION ACTIVE</b><br>"
+            + str(mission.get("title") or mission_id)
+        )
+
+    def _offer_resume_mission(self) -> None:
+        preferred = str(self.preferences.get("missions/active_id", "") or "").strip()
+        mission = self.agent.runtime.missions.get(preferred) if preferred else None
+        if mission is None:
+            active = [
+                item
+                for item in self.agent.runtime.missions.list(20)
+                if str(item.get("status", "")) == "active"
+            ]
+            mission = active[0] if active else None
+        if mission is None:
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Reprendre une mission",
+            f"Reprendre la mission « {mission.get('title', 'J.A.R.V.I.S.')} » ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._activate_mission(str(mission["id"]))
 
     def _open_settings(self) -> None:
         SettingsDialog(self).exec()
@@ -910,7 +956,7 @@ def run_app(*, diagnostic_seconds: float | None = None) -> int:
                     return 0
 
         print("[JARVIS] UI: constructing MainWindow…", flush=True)
-        window = MainWindow()
+        window = MainWindow(diagnostic=diagnostic_seconds is not None)
 
         print("[JARVIS] UI: showing window…", flush=True)
         window.show()
