@@ -92,9 +92,6 @@ class ChangesPanel(QWidget):
             QMessageBox.critical(self, "Diff", str(exc))
             return
 
-        dialog = QMessageBox(self)
-        dialog.setWindowTitle("J.A.R.V.I.S. — Diff")
-        dialog.setText("Aperçu de la modification enregistrée")
         details = QPlainTextEdit(diff or "(aucune différence textuelle)")
         details.setReadOnly(True)
         details.setMinimumSize(820, 440)
