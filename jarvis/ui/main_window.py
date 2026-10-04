@@ -85,6 +85,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._setup_tray()
+        QTimer.singleShot(700, self._offer_resume_missions)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -210,6 +211,29 @@ class MainWindow(QMainWindow):
         layout.addLayout(composer)
 
         self.setCentralWidget(root)
+
+    def _offer_resume_missions(self) -> None:
+        missions = self.agent.platform.missions(status="active")
+        resumable = [
+            mission
+            for mission in missions
+            if self.agent.platform.latest_checkpoint(str(mission.get("id", "")))
+        ]
+        if not resumable:
+            return
+
+        titles = "\n".join(f"• {item.get('title', 'Mission')}" for item in resumable[:6])
+        answer = QMessageBox.question(
+            self,
+            "Reprendre une mission",
+            "J.A.R.V.I.S. a trouvé des missions actives avec checkpoint :\n\n"
+            + titles
+            + "\n\nOuvrir le Platform Center ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._open_platform_center()
 
     def _open_platform_center(self) -> None:
         dialog = PlatformCenterDialog(self.agent, self)
