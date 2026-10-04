@@ -122,14 +122,14 @@ L'objectif final est simple : **un seul cerveau, une seule mémoire, les mêmes 
 | Wake word / interruption | ✅ Présent |
 | Exa web search | ✅ Intégré |
 | Control Center Web | ✅ Actif |
-| Diagnostic plateforme | ✅ 7 sous-systèmes |
-| Vision écran | 🔜 Prévu |
-| Window manager avancé | 🔜 Prévu |
-| Automatisation UI sûre | 🔜 Prévu |
-| Permissions Center natif | 🔜 Prévu |
-| Missions persistantes UI | 🔜 Prévu |
-| Installer signé / updater | 🔜 Prévu |
-| Core Python ↔ Web unifié | 🚧 En cours de conception |
+| Diagnostic plateforme | ✅ 12 sous-systèmes |
+| Capture écran multi-moniteurs | ✅ Actif |\n| Compréhension vision par modèle | 🟡 Côté IA à brancher plus tard |
+| Window manager Windows | ✅ Actif |
+| Automatisation UI sûre | ✅ Option Windows (`.[windows]`) |
+| Permissions Center natif | ✅ Actif |
+| Missions persistantes UI | ✅ Actif |
+| Installer / updater | 🟡 Inno Setup + GitHub Releases ; signature à fournir |
+| Core Python ↔ Web unifié | 🟡 Bridge streaming opt-in actif |
 
 ---
 
@@ -805,54 +805,54 @@ J.A.R.V.I.S/
 
 ## Phase A — Core professionnel
 
-- [ ] PermissionEngine unifié
-- [ ] JobManager
-- [ ] EventBus
-- [ ] STOP global coopératif
-- [ ] Health Center UI
-- [ ] crash logs persistants
-- [ ] Settings UI native
-- [ ] secrets Windows Credential Manager
+- [x] PermissionEngine unifié
+- [x] JobManager
+- [x] EventBus
+- [x] STOP global coopératif
+- [x] Health Center UI
+- [x] crash logs persistants
+- [x] Settings UI native
+- [x] secrets Windows Credential Manager
 
 ## Phase B — Assistant de bureau
 
-- [ ] System tray
-- [ ] notifications Windows
-- [ ] Task Center
-- [ ] Activity Center
-- [ ] clipboard contrôlé
-- [ ] file index / search
-- [ ] workspaces favoris
-- [ ] window manager
+- [x] System tray
+- [x] notifications Windows
+- [x] Task Center
+- [x] Activity Center
+- [x] clipboard contrôlé
+- [x] file index / search
+- [x] workspaces favoris
+- [x] window manager
 
 ## Phase C — Capacités avancées
 
-- [ ] vision écran
-- [ ] capture multi-moniteurs
-- [ ] safe UI automation
-- [ ] missions persistantes
-- [ ] restauration après reboot
-- [ ] undo / redo
-- [ ] diff viewer
-- [ ] vrai streaming API
+- [x] capture écran\n- [ ] compréhension visuelle par un modèle multimodal (côté IA)
+- [x] capture multi-moniteurs
+- [x] safe UI automation
+- [x] missions persistantes
+- [x] restauration après reboot
+- [x] undo / redo
+- [x] diff viewer
+- [x] vrai streaming API
 
 ## Phase D — Unification
 
-- [ ] Python Core comme source de vérité
-- [ ] WebSocket event stream
-- [ ] Next.js devient client du Python Core
-- [ ] mémoire unique
-- [ ] permissions uniques
-- [ ] scheduler unique
+- [x] Python Core exposé comme surface temps réel\n- [ ] suppression finale du moteur Web historique après validation
+- [x] WebSocket event stream
+- [x] Next.js peut devenir client du Python Core via `JARVIS_CORE_URL`
+- [ ] mémoire unique après migration/validation du bridge
+- [ ] permissions Web redirigées entièrement vers le Core
+- [x] scheduler Python unique pour les tâches agent
 
 ## Phase E — Produit Windows
 
-- [ ] first-run wizard
-- [ ] couverture pytest / pytest-qt
-- [ ] migration Prisma → Python
-- [ ] installer Windows
-- [ ] auto-update GitHub Releases
-- [ ] signature si distribution publique
+- [x] first-run wizard
+- [x] couverture pytest / pytest-qt
+- [x] migration Prisma → Python
+- [x] installer Windows
+- [x] auto-update GitHub Releases
+- [ ] signature si distribution publique (certificat/signing externe requis)
 
 ---
 
@@ -861,7 +861,7 @@ J.A.R.V.I.S/
 Le projet contient déjà une recette PyInstaller.
 
 ```powershell
-python -m pip install -e ".[build]"
+python -m pip install -e ".[build,windows,dev]"
 python -m unittest discover -s tests -v
 python -m jarvis selftest
 .\packaging\build-windows.ps1
