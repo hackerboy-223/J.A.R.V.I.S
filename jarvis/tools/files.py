@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import tempfile
 from typing import Any
 
 from jarvis.config import settings
+from jarvis.core.changes import ChangeJournal
 
 
 _BLOCKED_NAMES = {
@@ -42,6 +45,24 @@ def _resolve_workspace_path(raw: str) -> Path:
     return candidate
 
 
+def _journal() -> ChangeJournal:
+    return ChangeJournal(settings.database_path)
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    temp = Path(raw)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def file_read(args: dict[str, Any]) -> dict[str, Any]:
     path = _resolve_workspace_path(str(args.get("path", "")))
     if not path.exists() or not path.is_file():
@@ -70,12 +91,16 @@ def file_write(args: dict[str, Any]) -> dict[str, Any]:
     if path.exists() and not path.is_file():
         raise ValueError("La cible existe mais n'est pas un fichier.")
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    relative = str(path.relative_to(_workspace_root()))
+    before = path.read_text(encoding="utf-8", errors="strict") if path.exists() else None
+    _atomic_write(path, content)
+    change_id = _journal().record(relative, before, content)
     return {
         "written": True,
-        "path": str(path.relative_to(_workspace_root())),
+        "path": relative,
         "chars": len(content),
+        "change_id": change_id,
+        "diff": ChangeJournal.diff(relative, before or "", content)[:30000],
     }
 
 
@@ -103,9 +128,49 @@ def file_patch(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
-    path.write_text(updated, encoding="utf-8")
+    relative = str(path.relative_to(_workspace_root()))
+    _atomic_write(path, updated)
+    change_id = _journal().record(relative, text, updated)
     return {
         "patched": True,
-        "path": str(path.relative_to(_workspace_root())),
+        "path": relative,
         "replacements": occurrences if replace_all else 1,
+        "change_id": change_id,
+        "diff": ChangeJournal.diff(relative, text, updated)[:30000],
     }
+
+
+def file_preview_patch(args: dict[str, Any]) -> dict[str, Any]:
+    path = _resolve_workspace_path(str(args.get("path", "")))
+    old = str(args.get("old", ""))
+    new = str(args.get("new", ""))
+    replace_all = bool(args.get("replace_all", False))
+    if not old:
+        raise ValueError("old est requis.")
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"Fichier introuvable : {path.name}")
+    text = path.read_text(encoding="utf-8", errors="strict")
+    occurrences = text.count(old)
+    if occurrences == 0:
+        raise ValueError("Le bloc exact à remplacer n'a pas été trouvé.")
+    if occurrences > 1 and not replace_all:
+        raise ValueError("Le bloc apparaît plusieurs fois ; affinez old.")
+    updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+    relative = str(path.relative_to(_workspace_root()))
+    return {
+        "path": relative,
+        "replacements": occurrences if replace_all else 1,
+        "diff": ChangeJournal.diff(relative, text, updated)[:50000],
+    }
+
+
+def file_undo(args: dict[str, Any]) -> dict[str, Any]:
+    change_id = str(args.get("change_id", "")).strip()
+    if not change_id:
+        raise ValueError("change_id est requis.")
+    return _journal().undo(change_id)
+
+
+def file_changes(args: dict[str, Any] | None = None) -> dict[str, Any]:
+    limit = int((args or {}).get("limit", 30) or 30)
+    return {"changes": _journal().recent(limit=limit)}
