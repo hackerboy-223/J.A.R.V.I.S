@@ -8,8 +8,8 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import Signal, QObject, QTimer
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtCore import QSettings, Signal, QObject, QTimer
+from PySide6.QtGui import QAction, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -20,15 +20,20 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSystemTrayIcon,
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QMenu,
+    QStyle,
 )
 
 from jarvis.config import settings
 from jarvis.core.agent import JarvisAgent
 from jarvis.profile import OWNER_PROFILE
+from jarvis.ui.first_run import FirstRunWizard, setup_completed
 from jarvis.ui.neural_widget import NeuralCoreWidget
+from jarvis.ui.platform_dialogs import PlatformCenterDialog
 from jarvis.voice.vosk_stt import VoskHandsFreeListener as HandsFreeListener
 from jarvis.voice.tts import Speaker
 
@@ -67,6 +72,8 @@ class MainWindow(QMainWindow):
         self.speaker = Speaker()
         self.agent = JarvisAgent(confirm=self._confirm_action)
         self.hands_free = False
+        self._quitting = False
+        self._tray: QSystemTrayIcon | None = None
         self.listener: HandsFreeListener | None = None
 
         self._typewriter_text = ""
@@ -77,6 +84,7 @@ class MainWindow(QMainWindow):
         self._typewriter_timer.timeout.connect(self._typewriter_tick)
 
         self._build_ui()
+        self._setup_tray()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -119,6 +127,10 @@ class MainWindow(QMainWindow):
 
         header.addWidget(title)
         header.addStretch(1)
+        platform_button = QPushButton("PLATFORM")
+        platform_button.setToolTip("Health, permissions, jobs, tasks, activity, workspaces et missions")
+        platform_button.clicked.connect(self._open_platform_center)
+        header.addWidget(platform_button)
         header.addWidget(self.core_status)
         layout.addLayout(header)
 
@@ -198,6 +210,85 @@ class MainWindow(QMainWindow):
         layout.addLayout(composer)
 
         self.setCentralWidget(root)
+
+    def _open_platform_center(self) -> None:
+        dialog = PlatformCenterDialog(self.agent, self)
+        dialog.exec()
+
+    def _setup_tray(self) -> None:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        icon = app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        tray = QSystemTrayIcon(icon, self)
+        tray.setToolTip("J.A.R.V.I.S. · Core online")
+        menu = QMenu(self)
+
+        show_action = QAction("Ouvrir J.A.R.V.I.S.", self)
+        show_action.triggered.connect(self._restore_from_tray)
+        menu.addAction(show_action)
+
+        platform_action = QAction("Platform Center", self)
+        platform_action.triggered.connect(self._open_platform_center)
+        menu.addAction(platform_action)
+
+        voice_action = QAction("Basculer mains libres", self)
+        voice_action.triggered.connect(self._toggle_voice)
+        menu.addAction(voice_action)
+
+        stop_action = QAction("STOP global", self)
+        stop_action.triggered.connect(self._stop_global)
+        menu.addAction(stop_action)
+
+        menu.addSeparator()
+        quit_action = QAction("Quitter", self)
+        quit_action.triggered.connect(self.shutdown_and_quit)
+        menu.addAction(quit_action)
+
+        tray.setContextMenu(menu)
+        tray.activated.connect(
+            lambda reason: self._restore_from_tray()
+            if reason in {
+                QSystemTrayIcon.ActivationReason.Trigger,
+                QSystemTrayIcon.ActivationReason.DoubleClick,
+            }
+            else None
+        )
+        tray.show()
+        self._tray = tray
+
+    def _restore_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _stop_global(self) -> None:
+        cancelled = self.agent.jobs.cancel_all()
+        self.speaker.stop()
+        if self.listener is not None:
+            self.listener.stop()
+        self._typewriter_timer.stop()
+        self.agent.events.publish(
+            "core.stop_requested",
+            {"jobs": cancelled, "source": "desktop"},
+        )
+        self.core_status.setText(f"STOP · {cancelled} JOB(S) ANNULÉ(S)")
+
+    def shutdown_and_quit(self) -> None:
+        self._quitting = True
+        self._typewriter_timer.stop()
+        if self.listener is not None:
+            self.listener.shutdown()
+        self.speaker.stop()
+        self.agent.shutdown()
+        if self._tray is not None:
+            self._tray.hide()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _confirm_action(self, summary: str) -> bool:
         request = {
@@ -560,6 +651,16 @@ class MainWindow(QMainWindow):
         if not self.hands_free:
             self._set_voice_state("CORE ONLINE")
 
+        preferences = QSettings("HACKERBOY", "JARVIS")
+        notifications = preferences.value("desktop/notifications", True, type=bool)
+        if notifications and not self.isActiveWindow() and self._tray is not None:
+            self._tray.showMessage(
+                "J.A.R.V.I.S.",
+                "La réponse est prête.",
+                QSystemTrayIcon.MessageIcon.Information,
+                4000,
+            )
+
     def _set_voice_state(self, state: str) -> None:
         self.neural.set_state(state)
         self.core_status.setText(state)
@@ -578,6 +679,26 @@ class MainWindow(QMainWindow):
             self.live_caption.setText(state)
 
     def closeEvent(self, event) -> None:
+        preferences = QSettings("HACKERBOY", "JARVIS")
+        background = preferences.value("desktop/background", True, type=bool)
+        if (
+            not self._quitting
+            and background
+            and self._tray is not None
+            and self._tray.isVisible()
+        ):
+            self.hide()
+            if preferences.value("desktop/notifications", True, type=bool):
+                self._tray.showMessage(
+                    "J.A.R.V.I.S.",
+                    "J.A.R.V.I.S. continue de fonctionner en arrière-plan.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3000,
+                )
+            event.ignore()
+            return
+
+        self._quitting = True
         self._typewriter_timer.stop()
         if self.listener is not None:
             self.listener.shutdown()
@@ -607,6 +728,10 @@ def run_app(*, diagnostic_seconds: float | None = None) -> int:
         app.setApplicationName("J.A.R.V.I.S.")
         app.setQuitOnLastWindowClosed(True)
 
+        if diagnostic_seconds is None and not setup_completed():
+            wizard = FirstRunWizard()
+            wizard.exec()
+
         print("[JARVIS] UI: constructing MainWindow…", flush=True)
         window = MainWindow()
 
@@ -620,8 +745,7 @@ def run_app(*, diagnostic_seconds: float | None = None) -> int:
 
             def _finish_diagnostic() -> None:
                 print("[JARVIS] UI doctor: event loop is alive.", flush=True)
-                window.close()
-                app.quit()
+                window.shutdown_and_quit()
 
             QTimer.singleShot(delay_ms, _finish_diagnostic)
 
