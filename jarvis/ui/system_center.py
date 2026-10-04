@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from jarvis.core.diagnostics import export_diagnostic_bundle, health_snapshot
+from jarvis.ui.system_panels import ChangesPanel, DesktopPanel, FileSearchPanel
 
 
 def _table(headers: list[str]) -> QTableWidget:
@@ -61,6 +62,9 @@ class SystemCenterDialog(QDialog):
         self.tabs.addTab(self._mission_tab(), "Missions")
         self.tabs.addTab(self._simple_tab(self.workspaces_table, self._refresh_workspaces), "Workspaces")
         self.tabs.addTab(self._simple_tab(self.recent_files_table, self._refresh_recent_files), "Recent Files")
+        self.tabs.addTab(ChangesPanel(self.agent, self), "Changes")
+        self.tabs.addTab(FileSearchPanel(self.agent, self), "File Search")
+        self.tabs.addTab(DesktopPanel(self.agent, self), "Desktop")
 
         close = QPushButton("FERMER")
         close.clicked.connect(self.accept)
