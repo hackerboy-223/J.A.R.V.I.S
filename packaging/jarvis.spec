@@ -22,7 +22,7 @@ for package in (
     "keyring",
     "numpy",
     "pyttsx3",
-    "sounddevice",
+    "_sounddevice_data",
     "vosk",
 ):
     package_datas, package_binaries, package_hiddenimports = collect_all(package)
