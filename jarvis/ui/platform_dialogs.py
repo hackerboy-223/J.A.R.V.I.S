@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
 from jarvis.config import settings
@@ -126,6 +127,20 @@ class PlatformCenterDialog(QDialog):
         save_settings.clicked.connect(self._save_settings)
         settings_form.addRow("", save_settings)
         self.tabs.addTab(settings_page, "SETTINGS")
+
+        update_page = QWidget()
+        update_layout = QVBoxLayout(update_page)
+        self.update_text = QTextEdit()
+        self.update_text.setReadOnly(True)
+        self.update_text.setPlainText(
+            "Les mises à jour sont vérifiées via GitHub Releases. "
+            "Aucune installation n'est lancée sans confirmation."
+        )
+        update_layout.addWidget(self.update_text)
+        check_update = QPushButton("VÉRIFIER / TÉLÉCHARGER")
+        check_update.clicked.connect(self._check_update)
+        update_layout.addWidget(check_update)
+        self.tabs.addTab(update_page, "UPDATES")
 
         actions = QHBoxLayout()
         refresh = QPushButton("ACTUALISER")
@@ -270,6 +285,37 @@ class PlatformCenterDialog(QDialog):
             "Settings",
             "Réglages enregistrés. Les nouveaux secrets seront pris en compte au prochain démarrage.",
         )
+
+    def _check_update(self) -> None:
+        try:
+            result = self.agent.updater.download_latest_installer()
+        except Exception as exc:
+            self.update_text.setPlainText(f"Erreur de mise à jour : {exc}")
+            return
+
+        self.update_text.setPlainText(json.dumps(result, ensure_ascii=False, indent=2))
+        if not result.get("downloaded") or not result.get("path"):
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Mise à jour J.A.R.V.I.S.",
+            "L'installateur a été téléchargé et vérifié lorsque GitHub fournit un digest. "
+            "Voulez-vous le lancer maintenant ? J.A.R.V.I.S. devra ensuite être fermé.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.agent.updater.launch_installer(Path(str(result["path"])))
+        except Exception as exc:
+            QMessageBox.critical(self, "Mise à jour", str(exc))
+            return
+
+        window = self.parent()
+        if window is not None and hasattr(window, "shutdown_and_quit"):
+            window.shutdown_and_quit()
 
     def _set_permission(self, decision: str) -> None:
         row = self.permissions_table.currentRow()
