@@ -1072,10 +1072,9 @@ class JarvisAgent:
         mode = str(task.get("agent_mode", "operative")).strip().lower()
         if not prompt:
             return
-        self.ask(
+        self.submit(
             prompt,
             mode=mode,
-            progress=lambda _: None,
             operator_id=f"schedule:{task_id}",
         )
 
@@ -1153,13 +1152,18 @@ class JarvisAgent:
                 if on_progress is not None:
                     on_progress(message)
 
+            def delta(text: str) -> None:
+                ctx.checkpoint()
+                if on_delta is not None:
+                    on_delta(text)
+
             ctx.checkpoint()
             answer = self.ask(
                 clean,
                 mode=mode,
                 progress=progress,
                 operator_id=operator_id,
-                delta=on_delta,
+                delta=delta if on_delta is not None else None,
             )
             ctx.checkpoint()
             return {"answer": answer}
