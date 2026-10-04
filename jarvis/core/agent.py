@@ -83,6 +83,11 @@ class JarvisAgent:
         self.file_index = FileIndex(settings.database_path)
         self.undo = UndoManager()
         self.updater = UpdateService()
+        self.platform.add_workspace(
+            "Workspace principal",
+            str(settings.workspace_root),
+            favorite=True,
+        )
         self.llm = LLMClient()
         self.local_router = LocalCommandRouter()
         self.workflows = WorkflowEngine(self.llm)
@@ -771,6 +776,7 @@ class JarvisAgent:
     def _capability_for_tool(name: str) -> str:
         mapping = {
             "system_status": "system.read",
+            "pc_control": "windows.focus",
             "platform_health": "system.read",
             "knowledge_search": "knowledge.read",
             "file_read": "files.read",
@@ -813,6 +819,8 @@ class JarvisAgent:
 
         progress(f"TOOL · {name.upper()}")
         capability = self._capability_for_tool(name)
+        if name == "ui_control" and str(args.get("action", "")).lower() == "set_text":
+            capability = "ui.type"
         permission = self.permissions.get(capability)
         self.events.publish(
             "tool.started",
