@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, is_module_or_submodule
 
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parent.parent
@@ -18,7 +18,6 @@ for package in (
     "ctranslate2",
     "faster_whisper",
     "huggingface_hub",
-    "mcp",
     "mss",
     "keyring",
     "numpy",
@@ -30,6 +29,20 @@ for package in (
     datas.extend(package_datas)
     binaries.extend(package_binaries)
     hiddenimports.extend(package_hiddenimports)
+
+# JARVIS uses MCP as a client library, not the optional MCP command-line
+# interface. Collecting all of mcp without a filter imports mcp.cli during the
+# PyInstaller analysis phase; mcp.cli requires the optional "typer" dependency
+# and aborts the build when mcp[cli] is not installed.
+mcp_datas, mcp_binaries, mcp_hiddenimports = collect_all(
+    "mcp",
+    include_py_files=False,
+    filter_submodules=lambda name: not is_module_or_submodule(name, "mcp.cli"),
+    on_error="warn once",
+)
+datas.extend(mcp_datas)
+binaries.extend(mcp_binaries)
+hiddenimports.extend(mcp_hiddenimports)
 
 hiddenimports.extend(
     [
@@ -52,7 +65,7 @@ analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["pytest", "IPython"],
+    excludes=["pytest", "IPython", "mcp.cli"],
     noarchive=False,
 )
 
