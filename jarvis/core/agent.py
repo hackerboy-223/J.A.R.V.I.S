@@ -24,7 +24,13 @@ from jarvis.core.updater import UpdateService
 from jarvis.knowledge import KnowledgeBase
 from jarvis.profile import OWNER_PROFILE
 from jarvis.tools.clipboard import clipboard_read, clipboard_write
-from jarvis.tools.files import file_patch, file_read, file_write
+from jarvis.tools.files import (
+    file_patch,
+    file_patch_preview,
+    file_read,
+    file_write,
+    workspace_path,
+)
 from jarvis.tools.pc import pc_control
 from jarvis.tools.sandbox import python_sandbox
 from jarvis.tools.screen import capture_screen, list_monitors
@@ -213,7 +219,7 @@ class JarvisAgent:
             Tool(
                 name="file_write",
                 description="Create or explicitly overwrite a text file inside the workspace.",
-                fn=file_write,
+                fn=self._file_write_with_undo,
                 parameters={
                     "type": "object",
                     "properties": {
@@ -235,7 +241,7 @@ class JarvisAgent:
                     "Apply an exact text replacement inside a workspace file. "
                     "Use a precise old block and replacement new block."
                 ),
-                fn=file_patch,
+                fn=self._file_patch_with_undo,
                 parameters={
                     "type": "object",
                     "properties": {
@@ -245,6 +251,39 @@ class JarvisAgent:
                         "replace_all": {"type": "boolean"},
                     },
                     "required": ["path", "old", "new"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="file_patch_preview",
+                description="Preview an exact file patch as a unified diff without modifying the file.",
+                fn=file_patch_preview,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "old": {"type": "string"},
+                        "new": {"type": "string"},
+                        "replace_all": {"type": "boolean"},
+                    },
+                    "required": ["path", "old", "new"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="file_undo",
+                description="Undo a JARVIS text-file edit by its returned undo_id.",
+                fn=lambda args: self.undo.undo(str(args.get("undo_id", ""))),
+                parameters={
+                    "type": "object",
+                    "properties": {"undo_id": {"type": "string"}},
+                    "required": ["undo_id"],
                     "additionalProperties": False,
                 },
                 requires_confirmation=True,
@@ -577,6 +616,29 @@ class JarvisAgent:
             )
         )
 
+    def _file_write_with_undo(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = workspace_path(str(args.get("path", "")))
+        before = ""
+        if path.exists() and path.is_file():
+            before = path.read_text(encoding="utf-8", errors="strict")
+        result = file_write(args)
+        after = path.read_text(encoding="utf-8", errors="strict")
+        undo_id = self.undo.record(path, before, after)
+        return {**result, "undo_id": undo_id}
+
+    def _file_patch_with_undo(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = workspace_path(str(args.get("path", "")))
+        before = path.read_text(encoding="utf-8", errors="strict")
+        preview = file_patch_preview(args)
+        result = file_patch(args)
+        after = path.read_text(encoding="utf-8", errors="strict")
+        undo_id = self.undo.record(path, before, after)
+        return {
+            **result,
+            "undo_id": undo_id,
+            "diff": preview.get("diff", ""),
+        }
+
     def _operative_state_set(self, args: dict[str, Any]) -> dict[str, Any]:
         state = args.get("state")
         if not isinstance(state, dict):
@@ -671,6 +733,8 @@ class JarvisAgent:
             "file_read": "files.read",
             "file_write": "files.write",
             "file_patch": "files.write",
+            "file_patch_preview": "files.read",
+            "file_undo": "files.write",
             "clipboard_read": "clipboard.read",
             "clipboard_write": "clipboard.write",
             "list_windows": "windows.inspect",
