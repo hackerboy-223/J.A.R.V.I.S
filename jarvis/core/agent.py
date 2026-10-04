@@ -26,7 +26,7 @@ from jarvis.tools.files import (
 )
 from jarvis.tools.pc import pc_control
 from jarvis.tools.clipboard import clipboard_read, clipboard_write
-from jarvis.tools.screen import screen_capture
+from jarvis.tools.screen import screen_capture, screen_monitors
 from jarvis.tools.ui_automation import inspect_controls, ui_action
 from jarvis.tools.windows import list_windows, window_action
 from jarvis.tools.sandbox import python_sandbox
@@ -519,6 +519,16 @@ class JarvisAgent:
 
         self.tools.register(
             Tool(
+                name="screen_monitors",
+                description="List available monitors and their bounds without capturing pixels.",
+                fn=screen_monitors,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                capability="system.read",
+            )
+        )
+
+        self.tools.register(
+            Tool(
                 name="screen_capture",
                 description="Capture a selected monitor to a local PNG after permission. It does not silently persist screenshots.",
                 fn=screen_capture,
@@ -568,6 +578,22 @@ class JarvisAgent:
                 },
                 requires_confirmation=True,
                 capability="ui.automation",
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="recent_files",
+                description="List recently read or modified workspace files.",
+                fn=lambda args: {
+                    "files": self.runtime.recent_files.list(int(args.get("limit", 50) or 50))
+                },
+                parameters={
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+                    "additionalProperties": False,
+                },
+                capability="files.history",
             )
         )
 
