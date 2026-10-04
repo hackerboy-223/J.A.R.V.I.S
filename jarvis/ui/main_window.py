@@ -45,6 +45,7 @@ class Bridge(QObject):
     voice_state = Signal(str)
     voice_error = Signal(str)
     voice_level = Signal(float)
+    voice_start_finished = Signal(bool, str)
     agent_progress = Signal(str)
     barge_in = Signal()
     speech_finished = Signal()
@@ -64,6 +65,7 @@ class MainWindow(QMainWindow):
         self.bridge.voice_state.connect(self._set_voice_state)
         self.bridge.voice_error.connect(self._on_voice_error)
         self.bridge.voice_level.connect(self._on_voice_level)
+        self.bridge.voice_start_finished.connect(self._on_voice_start_finished)
         self.bridge.agent_progress.connect(self._on_agent_progress)
         self.bridge.barge_in.connect(self._on_barge_in)
         self.bridge.speech_finished.connect(self._on_speech_finished)
@@ -72,6 +74,7 @@ class MainWindow(QMainWindow):
         self.speaker = Speaker()
         self.agent = JarvisAgent(confirm=self._confirm_action)
         self.hands_free = False
+        self._voice_starting = False
         self._quitting = False
         self._tray: QSystemTrayIcon | None = None
         self.listener: HandsFreeListener | None = None
@@ -352,6 +355,9 @@ class MainWindow(QMainWindow):
         return self.listener
 
     def _toggle_voice(self) -> None:
+        if self._voice_starting:
+            return
+
         if self.hands_free:
             self.hands_free = False
             if self.listener is not None:
@@ -360,15 +366,49 @@ class MainWindow(QMainWindow):
             self._set_voice_state("VOICE LINK OFFLINE")
             return
 
-        try:
-            self.hands_free = True
-            self.voice_button.setText("MAINS LIBRES : ON")
-            self._set_voice_state("MIC · INITIALISATION…")
-            self._ensure_listener().start()
-        except Exception as exc:
+        self.hands_free = True
+        self._voice_starting = True
+        self.voice_button.setEnabled(False)
+        self.voice_button.setText("MAINS LIBRES : DÉMARRAGE…")
+        self._set_voice_state("MIC · INITIALISATION…")
+
+        def worker() -> None:
+            try:
+                self._ensure_listener().start()
+            except Exception as exc:
+                self.bridge.voice_start_finished.emit(False, str(exc))
+                return
+            self.bridge.voice_start_finished.emit(True, "")
+
+        threading.Thread(
+            target=worker,
+            name="jarvis-voice-start",
+            daemon=True,
+        ).start()
+
+    def _on_voice_start_finished(self, success: bool, message: str) -> None:
+        self._voice_starting = False
+        self.voice_button.setEnabled(True)
+
+        if not success:
             self.hands_free = False
             self.voice_button.setText("MAINS LIBRES : OFF")
-            QMessageBox.critical(self, "Microphone", str(exc))
+            self._set_voice_state("VOICE ERROR")
+            QMessageBox.critical(
+                self,
+                "Microphone",
+                message or "Impossible de démarrer le mode mains libres.",
+            )
+            return
+
+        if not self.hands_free:
+            if self.listener is not None:
+                self.listener.stop()
+            self.voice_button.setText("MAINS LIBRES : OFF")
+            self._set_voice_state("VOICE LINK OFFLINE")
+            return
+
+        self.voice_button.setText("MAINS LIBRES : ON")
 
     def _add_knowledge_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -587,6 +627,8 @@ class MainWindow(QMainWindow):
         self.neural.set_audio_level(level)
 
     def _on_voice_error(self, message: str) -> None:
+        self._voice_starting = False
+        self.voice_button.setEnabled(True)
         self.neural.set_audio_level(0.0)
         self._set_voice_state("VOICE ERROR")
         self.live_caption.setText(f"VOICE ERROR · {message}")
