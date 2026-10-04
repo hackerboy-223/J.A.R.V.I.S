@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import threading
 import traceback
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Callable
 
@@ -15,6 +16,7 @@ from jarvis.config import DATA_DIR, settings
 
 
 _LOGGER_NAME = "jarvis"
+_FAULT_FILE = None
 
 
 def configure_logging() -> logging.Logger:
@@ -40,11 +42,13 @@ def configure_logging() -> logging.Logger:
 
 
 def install_crash_hooks() -> logging.Logger:
+    global _FAULT_FILE
     logger = configure_logging()
     try:
         crash_path = DATA_DIR / "logs" / "native-crash.log"
-        crash_file = crash_path.open("a", encoding="utf-8")
-        faulthandler.enable(file=crash_file, all_threads=True)
+        if _FAULT_FILE is None or _FAULT_FILE.closed:
+            _FAULT_FILE = crash_path.open("a", encoding="utf-8")
+        faulthandler.enable(file=_FAULT_FILE, all_threads=True)
     except Exception:
         pass
 
@@ -89,7 +93,7 @@ def health_snapshot(
     checks: dict[str, dict[str, Any]] = {}
 
     try:
-        with sqlite3.connect(settings.database_path, timeout=5) as db:
+        with closing(sqlite3.connect(settings.database_path, timeout=5)) as db:
             value = db.execute("PRAGMA quick_check").fetchone()
         ok = bool(value and value[0] == "ok")
         checks["sqlite"] = {"ok": ok, "detail": value[0] if value else "no result"}
