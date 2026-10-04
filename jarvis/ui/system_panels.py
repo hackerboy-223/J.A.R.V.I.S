@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -22,9 +23,9 @@ from jarvis.tools.windows import list_windows, window_action
 def _table(headers: list[str]) -> QTableWidget:
     table = QTableWidget(0, len(headers))
     table.setHorizontalHeaderLabels(headers)
-    table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-    table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-    table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     table.horizontalHeader().setStretchLastSection(True)
     return table
 
@@ -292,7 +293,6 @@ class DesktopPanel(QWidget):
         screen_actions.addStretch(1)
         root.addLayout(screen_actions)
 
-        self.refresh_windows()
         self.refresh_monitors()
 
     def _confirm(self, capability: str, reason: str) -> bool:
