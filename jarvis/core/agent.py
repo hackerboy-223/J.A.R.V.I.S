@@ -1019,6 +1019,20 @@ class JarvisAgent:
         progress = progress or (lambda _: None)
         normalized_mode = mode.strip().lower()
         clean_operator_id = operator_id.strip()[:120] or "main"
+
+        if normalized_mode != "standard":
+            # Specialized workflows currently synthesize one final answer, while
+            # their progress remains visible through EventBus/WebSocket.
+            answer = self.ask(
+                clean,
+                mode=normalized_mode,
+                progress=progress,
+                operator_id=clean_operator_id,
+            )
+            if answer:
+                yield answer
+            return
+
         self._context.operator_id = clean_operator_id
         self.memory.add_message("user", clean)
         self.events.publish(
@@ -1028,28 +1042,14 @@ class JarvisAgent:
         parts: list[str] = []
 
         try:
-            if normalized_mode == "standard":
-                for delta in self._run_standard_stream(clean, progress):
-                    parts.append(delta)
-                    yield delta
-            else:
-                # Specialized workflows currently produce a synthesized final answer.
-                # They still expose granular progress through EventBus/WebSocket.
-                answer = self.ask(
-                    clean,
-                    mode=normalized_mode,
-                    progress=progress,
-                    operator_id=clean_operator_id,
-                )
-                parts.append(answer)
-                if answer:
-                    yield answer
+            for delta in self._run_standard_stream(clean, progress):
+                parts.append(delta)
+                yield delta
         finally:
             self._context.operator_id = "main"
 
         answer = "".join(parts)
-        if normalized_mode == "standard":
-            self.memory.add_message("assistant", answer)
+        self.memory.add_message("assistant", answer)
         self.events.publish(
             "message.completed",
             {"mode": normalized_mode, "operator_id": clean_operator_id},
