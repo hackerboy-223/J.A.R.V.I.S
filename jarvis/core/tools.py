@@ -19,6 +19,7 @@ class Tool:
         }
     )
     requires_confirmation: bool = False
+    capability: str | None = None
 
 
 class ToolRegistry:
