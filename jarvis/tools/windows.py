@@ -66,3 +66,32 @@ def focus_window(args: dict[str, Any]) -> dict[str, Any]:
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
     win32gui.SetForegroundWindow(hwnd)
     return {"focused": True, "title": match["title"], "hwnd": hwnd}
+
+
+def window_action(args: dict[str, Any]) -> dict[str, Any]:
+    win32con, win32gui, _ = _win32()
+    title = str(args.get("title", "")).strip().lower()
+    action = str(args.get("action", "")).strip().lower()
+    if not title:
+        raise ValueError("title est requis.")
+    if action not in {"focus", "minimize", "maximize", "restore"}:
+        raise ValueError("action doit être focus, minimize, maximize ou restore.")
+
+    matches = list_windows({})["windows"]
+    match = next((item for item in matches if title in item["title"].lower()), None)
+    if match is None:
+        raise ValueError("Fenêtre introuvable.")
+
+    hwnd = int(match["hwnd"])
+    if action == "focus":
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+    elif action == "minimize":
+        win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+    elif action == "maximize":
+        win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+    elif action == "restore":
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+    return {"ok": True, "action": action, "title": match["title"], "hwnd": hwnd}
