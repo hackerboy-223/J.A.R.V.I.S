@@ -24,6 +24,7 @@ _DEFAULTS: dict[str, Decision] = {
     "screen.capture": "ask",
     "files.write": "ask",
     "files.undo": "ask",
+    "ui.inspect": "ask",
     "ui.automation": "ask",
     "pc.control": "ask",
     "python.sandbox": "ask",
