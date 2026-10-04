@@ -99,6 +99,67 @@ def run() -> int:
         assert callable(create_app)
         return "FastAPI module/import OK"
 
+    def permissions_check() -> str:
+        from jarvis.core.permissions import PermissionEngine
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = PermissionEngine(Path(tmp) / "permissions.db")
+            assert engine.get("screen.read").decision.value == "ask"
+            engine.set("screen.read", "deny")
+            assert engine.get("screen.read").decision.value == "deny"
+        return "allow/ask/deny persistence OK"
+
+    def events_check() -> str:
+        from jarvis.core.events import EventBus
+        bus = EventBus()
+        seen = []
+        token = bus.subscribe(seen.append)
+        bus.publish("selftest", {"ok": True})
+        bus.unsubscribe(token)
+        assert seen and seen[0].payload["ok"] is True
+        return "publish/subscribe/history OK"
+
+    def jobs_check() -> str:
+        from jarvis.core.events import EventBus
+        from jarvis.core.jobs import JobManager
+        import time
+        manager = JobManager(EventBus(), max_workers=1)
+        try:
+            job_id = manager.submit("selftest", lambda ctx: "done")
+            deadline = time.time() + 2
+            while time.time() < deadline:
+                item = manager.get(job_id)
+                if item and item["state"] == "completed":
+                    break
+                time.sleep(0.02)
+            assert manager.get(job_id)["state"] == "completed"
+        finally:
+            manager.shutdown()
+        return "background job lifecycle OK"
+
+    def platform_store_check() -> str:
+        from jarvis.core.platform_store import PlatformStore
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            root.mkdir()
+            store = PlatformStore(Path(tmp) / "platform.db")
+            workspace = store.add_workspace("demo", str(root), favorite=True)
+            mission = store.create_mission("demo mission", workspace["id"], "operative")
+            store.checkpoint(mission["id"], {"step": 1})
+            assert store.latest_checkpoint(mission["id"])["state"]["step"] == 1
+        return "workspace/mission/checkpoint persistence OK"
+
+    def undo_check() -> str:
+        from jarvis.core.undo import UndoManager
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "demo.txt"
+            path.write_text("before", encoding="utf-8")
+            manager = UndoManager()
+            path.write_text("after", encoding="utf-8")
+            undo_id = manager.record(path, "before", "after")
+            manager.undo(undo_id)
+            assert path.read_text(encoding="utf-8") == "before"
+        return "reversible file snapshots OK"
+
     check("Scheduler", scheduler_check)
     check("Operative state", operative_check)
     check("Knowledge memory", knowledge_check)
@@ -106,6 +167,11 @@ def run() -> int:
     check("Python sandbox", sandbox_check)
     check("MCP", mcp_check)
     check("FastAPI", api_check)
+    check("Permissions", permissions_check)
+    check("Event bus", events_check)
+    check("Job manager", jobs_check)
+    check("Platform store", platform_store_check)
+    check("Undo", undo_check)
 
     print("\nJ.A.R.V.I.S. PLATFORM SELF-TEST")
     print("=" * 42)

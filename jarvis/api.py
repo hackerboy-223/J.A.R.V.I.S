@@ -8,7 +8,7 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from jarvis.config import settings
@@ -20,33 +20,38 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        jarvis.events.publish("core.started", {"source": "fastapi"})
         yield
         jarvis.shutdown()
 
     app = FastAPI(
         title="J.A.R.V.I.S. API",
-        version="0.2.0",
+        version="0.3.0",
         lifespan=lifespan,
     )
 
-    def require_auth(authorization: str | None) -> None:
+    def valid_token(raw: str | None) -> bool:
         if not settings.api_token:
-            return
-        prefix = "Bearer "
-        if not authorization or not authorization.startswith(prefix):
-            raise HTTPException(status_code=401, detail="Bearer token requis.")
-        token = authorization[len(prefix):]
-        if not secrets.compare_digest(token, settings.api_token):
-            raise HTTPException(status_code=401, detail="Token invalide.")
+            return True
+        if not raw:
+            return False
+        token = raw[len("Bearer "):] if raw.startswith("Bearer ") else raw
+        return secrets.compare_digest(token, settings.api_token)
+
+    def require_auth(authorization: str | None) -> None:
+        if not valid_token(authorization):
+            raise HTTPException(status_code=401, detail="Bearer token requis ou invalide.")
 
     @app.get("/health")
     async def health(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         require_auth(authorization)
+        snapshot = jarvis.health.snapshot()
         return {
-            "status": "ok",
+            "status": "ok" if snapshot["healthy"] else "degraded",
             "service": "jarvis",
             "provider": settings.llm_provider,
             "model": settings.llm_model,
+            **snapshot,
         }
 
     @app.get("/v1/models")
@@ -63,6 +68,220 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
                 }
             ],
         }
+
+    @app.get("/v1/platform/health")
+    async def platform_health(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return jarvis.health.snapshot()
+
+    @app.get("/v1/platform/activity")
+    async def activity(
+        limit: int = 100,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return {"events": jarvis.platform.activity(limit)}
+
+    @app.get("/v1/platform/events")
+    async def recent_events(
+        limit: int = 100,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return {"events": jarvis.events.recent(limit)}
+
+    @app.get("/v1/platform/permissions")
+    async def permissions(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return {"permissions": jarvis.permissions.list()}
+
+    @app.put("/v1/platform/permissions/{capability:path}")
+    async def set_permission(
+        capability: str,
+        payload: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        result = jarvis.permissions.set(
+            capability,
+            str(payload.get("decision", "ask")),
+            scope=str(payload.get("scope", "always")),
+        )
+        jarvis.platform.log(
+            "permission",
+            "changed",
+            {
+                "capability": result.capability,
+                "decision": result.decision.value,
+                "source": result.source,
+            },
+        )
+        jarvis.events.publish(
+            "permission.changed",
+            {
+                "capability": result.capability,
+                "decision": result.decision.value,
+                "source": result.source,
+            },
+        )
+        return {
+            "capability": result.capability,
+            "decision": result.decision.value,
+            "source": result.source,
+        }
+
+    @app.get("/v1/platform/jobs")
+    async def jobs(
+        limit: int = 100,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return {"jobs": jarvis.jobs.list(limit)}
+
+    @app.post("/v1/platform/jobs/{job_id}/cancel")
+    async def cancel_job(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return {"cancelled": jarvis.jobs.cancel(job_id), "job_id": job_id}
+
+    @app.post("/v1/platform/jobs/cancel-all")
+    async def cancel_all_jobs(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        count = jarvis.jobs.cancel_all()
+        jarvis.events.publish("core.stop_requested", {"jobs": count})
+        return {"cancelled": count}
+
+    @app.get("/v1/platform/workspaces")
+    async def workspaces(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return {"workspaces": jarvis.platform.workspaces()}
+
+    @app.post("/v1/platform/workspaces")
+    async def add_workspace(
+        payload: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        workspace = jarvis.platform.add_workspace(
+            str(payload.get("name", "")),
+            str(payload.get("root_path", "")),
+            bool(payload.get("favorite", False)),
+        )
+        jarvis.events.publish("workspace.updated", workspace)
+        return workspace
+
+    @app.get("/v1/platform/missions")
+    async def missions(
+        status: str | None = None,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return {"missions": jarvis.platform.missions(status)}
+
+    @app.post("/v1/platform/missions")
+    async def create_mission(
+        payload: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        mission = jarvis.platform.create_mission(
+            str(payload.get("title", "")),
+            str(payload.get("workspace_id")) if payload.get("workspace_id") else None,
+            str(payload.get("mode", "standard")),
+        )
+        jarvis.events.publish("mission.created", mission)
+        return mission
+
+    @app.post("/v1/platform/missions/{mission_id}/checkpoint")
+    async def checkpoint_mission(
+        mission_id: str,
+        payload: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        state = payload.get("state")
+        if not isinstance(state, dict):
+            raise HTTPException(status_code=400, detail="state doit être un objet.")
+        jarvis.platform.checkpoint(mission_id, state)
+        jarvis.events.publish("mission.checkpoint", {"mission_id": mission_id})
+        return {"ok": True, "mission_id": mission_id}
+
+    @app.get("/v1/platform/missions/{mission_id}/checkpoint")
+    async def latest_checkpoint(
+        mission_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        return jarvis.platform.latest_checkpoint(mission_id)
+
+    @app.post("/v1/chat/jobs")
+    async def chat_job(
+        payload: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_auth(authorization)
+        prompt = str(payload.get("prompt", "")).strip()
+        if not prompt:
+            raise HTTPException(status_code=400, detail="prompt est requis.")
+        mode = str(payload.get("mode", "standard")).strip().lower()
+        operator_id = str(payload.get("operator_id", "api-job")).strip()[:120] or "api-job"
+
+        def run(ctx):
+            def progress(message: str) -> None:
+                ctx.progress(0.5, message)
+                ctx.checkpoint()
+            return jarvis.ask(prompt, mode=mode, progress=progress, operator_id=operator_id)
+
+        job_id = jarvis.jobs.submit(prompt[:120], run)
+        return {"job_id": job_id}
+
+    @app.websocket("/ws/events")
+    async def event_socket(websocket: WebSocket) -> None:
+        token = websocket.query_params.get("token") or websocket.headers.get("authorization")
+        if not valid_token(token):
+            await websocket.close(code=4401)
+            return
+
+        await websocket.accept()
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
+
+        def on_event(event) -> None:
+            payload = event.to_dict()
+
+            def push() -> None:
+                if queue.full():
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                try:
+                    queue.put_nowait(payload)
+                except asyncio.QueueFull:
+                    pass
+
+            loop.call_soon_threadsafe(push)
+
+        subscription = jarvis.events.subscribe(on_event)
+        try:
+            await websocket.send_json({"type": "connected", "service": "jarvis"})
+            while True:
+                event = await queue.get()
+                await websocket.send_json(event)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            jarvis.events.unsubscribe(subscription)
 
     @app.post("/v1/chat/completions")
     async def chat_completions(
@@ -102,6 +321,104 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
             mode = "standard"
         operator_id = str(metadata.get("operator_id", "api")).strip()[:120] or "api"
 
+        completion_id = f"chatcmpl-{uuid.uuid4().hex}"
+        created = int(time.time())
+        model = str(payload.get("model") or settings.llm_model)
+
+        if bool(payload.get("stream", False)):
+            queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+
+            def progress(message: str) -> None:
+                loop.call_soon_threadsafe(queue.put_nowait, ("progress", message))
+
+            def stream_worker() -> None:
+                try:
+                    for delta in jarvis.stream(
+                        user_text,
+                        mode=mode,
+                        progress=progress,
+                        operator_id=operator_id,
+                    ):
+                        loop.call_soon_threadsafe(queue.put_nowait, ("delta", str(delta)))
+                except Exception as exc:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("done", ""))
+
+            asyncio.create_task(asyncio.to_thread(stream_worker))
+
+            async def event_stream():
+                first_delta = True
+                while True:
+                    kind, value = await queue.get()
+                    if kind == "progress":
+                        event = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
+                            "jarvis": {"event": "progress", "message": value},
+                        }
+                        yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+                        continue
+
+                    if kind == "delta":
+                        event = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        **({"role": "assistant"} if first_delta else {}),
+                                        "content": value,
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        first_delta = False
+                        yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+                        continue
+
+                    if kind == "error":
+                        event = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": f"Erreur streaming : {value}"},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+                        continue
+
+                    final = {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": model,
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    }
+                    yield "data: " + json.dumps(final, ensure_ascii=False) + "\n\n"
+                    yield "data: [DONE]\n\n"
+                    break
+
+            return StreamingResponse(
+                event_stream(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
         answer = await asyncio.to_thread(
             jarvis.ask,
             user_text,
@@ -109,30 +426,6 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
             None,
             operator_id,
         )
-
-        completion_id = f"chatcmpl-{uuid.uuid4().hex}"
-        created = int(time.time())
-        model = str(payload.get("model") or settings.llm_model)
-
-        if bool(payload.get("stream", False)):
-            async def event_stream():
-                chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": answer},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                }
-                yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
-                yield "data: [DONE]\n\n"
-
-            return StreamingResponse(event_stream(), media_type="text/event-stream")
 
         return {
             "id": completion_id,

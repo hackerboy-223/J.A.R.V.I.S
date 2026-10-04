@@ -6,20 +6,38 @@ import threading
 from typing import Any, Callable
 
 from jarvis.config import settings
+from jarvis.core.events import EventBus
+from jarvis.core.file_index import FileIndex
+from jarvis.core.health import HealthService
+from jarvis.core.jobs import JobManager
 from jarvis.core.llm import LLMClient
 from jarvis.core.local_commands import LocalCommandRouter
 from jarvis.core.mcp_bridge import MCPManager
 from jarvis.core.memory import MemoryStore
+from jarvis.core.permissions import PermissionEngine
+from jarvis.core.platform_store import PlatformStore
 from jarvis.core.scheduler import TaskScheduler
 from jarvis.core.skills import SkillManager
 from jarvis.core.tools import Tool, ToolRegistry
+from jarvis.core.undo import UndoManager
+from jarvis.core.updater import UpdateService
 from jarvis.knowledge import KnowledgeBase
 from jarvis.profile import OWNER_PROFILE
-from jarvis.tools.files import file_patch, file_read, file_write
+from jarvis.tools.clipboard import clipboard_read, clipboard_write
+from jarvis.tools.files import (
+    file_patch,
+    file_patch_preview,
+    file_read,
+    file_write,
+    workspace_path,
+)
 from jarvis.tools.pc import pc_control
 from jarvis.tools.sandbox import python_sandbox
+from jarvis.tools.screen import capture_screen, list_monitors
 from jarvis.tools.system import system_status
+from jarvis.tools.ui_automation import activate_ui, control_action, inspect_ui
 from jarvis.tools.web import read_page, web_search
+from jarvis.tools.windows import active_window, focus_window, list_windows, window_action
 from jarvis.workflows import WorkflowEngine
 
 
@@ -57,6 +75,19 @@ class JarvisAgent:
     def __init__(self, confirm: Callable[[str], bool] | None = None) -> None:
         self.memory = MemoryStore(settings.database_path)
         self.knowledge = KnowledgeBase(settings.database_path)
+        self.events = EventBus()
+        self.platform = PlatformStore(settings.database_path)
+        self.permissions = PermissionEngine(settings.database_path)
+        self.jobs = JobManager(self.events)
+        self.health = HealthService(self.platform)
+        self.file_index = FileIndex(settings.database_path)
+        self.undo = UndoManager()
+        self.updater = UpdateService()
+        self.platform.add_workspace(
+            "Workspace principal",
+            str(settings.workspace_root),
+            favorite=True,
+        )
         self.llm = LLMClient()
         self.local_router = LocalCommandRouter()
         self.workflows = WorkflowEngine(self.llm)
@@ -193,7 +224,7 @@ class JarvisAgent:
             Tool(
                 name="file_write",
                 description="Create or explicitly overwrite a text file inside the workspace.",
-                fn=file_write,
+                fn=self._file_write_with_undo,
                 parameters={
                     "type": "object",
                     "properties": {
@@ -215,7 +246,7 @@ class JarvisAgent:
                     "Apply an exact text replacement inside a workspace file. "
                     "Use a precise old block and replacement new block."
                 ),
-                fn=file_patch,
+                fn=self._file_patch_with_undo,
                 parameters={
                     "type": "object",
                     "properties": {
@@ -225,6 +256,39 @@ class JarvisAgent:
                         "replace_all": {"type": "boolean"},
                     },
                     "required": ["path", "old", "new"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="file_patch_preview",
+                description="Preview an exact file patch as a unified diff without modifying the file.",
+                fn=file_patch_preview,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "old": {"type": "string"},
+                        "new": {"type": "string"},
+                        "replace_all": {"type": "boolean"},
+                    },
+                    "required": ["path", "old", "new"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="file_undo",
+                description="Undo a JARVIS text-file edit by its returned undo_id.",
+                fn=lambda args: self.undo.undo(str(args.get("undo_id", ""))),
+                parameters={
+                    "type": "object",
+                    "properties": {"undo_id": {"type": "string"}},
+                    "required": ["undo_id"],
                     "additionalProperties": False,
                 },
                 requires_confirmation=True,
@@ -428,6 +492,201 @@ class JarvisAgent:
             )
         )
 
+        self.tools.register(
+            Tool(
+                name="clipboard_read",
+                description="Read current Windows clipboard text after permission.",
+                fn=clipboard_read,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="clipboard_write",
+                description="Copy text to the Windows clipboard.",
+                fn=clipboard_write,
+                parameters={
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="list_windows",
+                description="List visible Windows desktop windows and their bounds.",
+                fn=list_windows,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="active_window",
+                description="Read the currently focused Windows window.",
+                fn=active_window,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="focus_window",
+                description="Focus or restore a visible window by title.",
+                fn=focus_window,
+                parameters={
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}},
+                    "required": ["title"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="list_monitors",
+                description="List monitors visible to the local Windows session.",
+                fn=list_monitors,
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="capture_screen",
+                description="Capture a monitor to a local PNG only when explicitly authorized.",
+                fn=capture_screen,
+                parameters={
+                    "type": "object",
+                    "properties": {"monitor": {"type": "integer", "minimum": 0, "maximum": 16}},
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="inspect_ui",
+                description="Read-only inspection of visible window-level UI information.",
+                fn=inspect_ui,
+                parameters={
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}},
+                    "additionalProperties": False,
+                },
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="activate_ui",
+                description="Safely focus a named visible application window.",
+                fn=activate_ui,
+                parameters={
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}},
+                    "required": ["title"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+
+        self.tools.register(
+            Tool(
+                name="window_action",
+                description="Focus, minimize, maximize or restore a named visible Windows window.",
+                fn=window_action,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "action": {
+                            "type": "string",
+                            "enum": ["focus", "minimize", "maximize", "restore"],
+                        },
+                    },
+                    "required": ["title", "action"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="ui_control",
+                description=(
+                    "Interact with a named UI Automation control by semantic name. "
+                    "Raw pointer coordinates are intentionally unsupported."
+                ),
+                fn=control_action,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "window": {"type": "string"},
+                        "control": {"type": "string"},
+                        "action": {"type": "string", "enum": ["click", "set_text"]},
+                        "value": {"type": "string"},
+                    },
+                    "required": ["window", "control", "action"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="search_files",
+                description="Search the local indexed workspace by filename/path.",
+                fn=lambda args: {
+                    "results": self.file_index.search(
+                        str(args.get("query", "")),
+                        limit=int(args.get("limit", 40) or 40),
+                    )
+                },
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="platform_health",
+                description="Read JARVIS platform health and local subsystem status.",
+                fn=lambda _: self.health.snapshot(),
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+        )
+
+    def _file_write_with_undo(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = workspace_path(str(args.get("path", "")))
+        before = ""
+        if path.exists() and path.is_file():
+            before = path.read_text(encoding="utf-8", errors="strict")
+        result = file_write(args)
+        after = path.read_text(encoding="utf-8", errors="strict")
+        undo_id = self.undo.record(path, before, after)
+        return {**result, "undo_id": undo_id}
+
+    def _file_patch_with_undo(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = workspace_path(str(args.get("path", "")))
+        before = path.read_text(encoding="utf-8", errors="strict")
+        preview = file_patch_preview(args)
+        result = file_patch(args)
+        after = path.read_text(encoding="utf-8", errors="strict")
+        undo_id = self.undo.record(path, before, after)
+        return {
+            **result,
+            "undo_id": undo_id,
+            "diff": preview.get("diff", ""),
+        }
+
     def _operative_state_set(self, args: dict[str, Any]) -> dict[str, Any]:
         state = args.get("state")
         if not isinstance(state, dict):
@@ -513,6 +772,40 @@ class JarvisAgent:
             return f"Autoriser {name} pour la tâche {args.get('task_id', '?')} ?"
         return f"Autoriser J.A.R.V.I.S. à exécuter {name} ?"
 
+    @staticmethod
+    def _capability_for_tool(name: str) -> str:
+        mapping = {
+            "system_status": "system.read",
+            "pc_control": "windows.focus",
+            "platform_health": "system.read",
+            "knowledge_search": "knowledge.read",
+            "file_read": "files.read",
+            "file_write": "files.write",
+            "file_patch": "files.write",
+            "file_patch_preview": "files.read",
+            "file_undo": "files.write",
+            "clipboard_read": "clipboard.read",
+            "clipboard_write": "clipboard.write",
+            "list_windows": "windows.inspect",
+            "active_window": "windows.inspect",
+            "focus_window": "windows.focus",
+            "inspect_ui": "windows.inspect",
+            "activate_ui": "windows.focus",
+            "window_action": "windows.focus",
+            "ui_control": "ui.click",
+            "capture_screen": "screen.read",
+            "list_monitors": "screen.read",
+            "web_search": "network.web",
+            "read_page": "network.web",
+            "mcp_call": "mcp.call",
+            "python_sandbox": "sandbox.run",
+            "schedule_task": "scheduler.write",
+            "pause_scheduled_task": "scheduler.write",
+            "resume_scheduled_task": "scheduler.write",
+            "cancel_scheduled_task": "scheduler.write",
+        }
+        return mapping.get(name, "system.read")
+
     def _execute_tool(
         self,
         name: str,
@@ -525,14 +818,36 @@ class JarvisAgent:
             return {"ok": False, "error": str(exc)}
 
         progress(f"TOOL · {name.upper()}")
-        if tool.requires_confirmation and not self.confirm(self._confirm_summary(name, args)):
-            return {"ok": False, "error": "Action refusée par l'utilisateur"}
+        capability = self._capability_for_tool(name)
+        if name == "ui_control" and str(args.get("action", "")).lower() == "set_text":
+            capability = "ui.type"
+        permission = self.permissions.get(capability)
+        self.events.publish(
+            "tool.started",
+            {"tool": name, "capability": capability, "permission": permission.decision.value},
+        )
+
+        must_confirm = tool.requires_confirmation or permission.decision.value == "ask"
+        if permission.decision.value == "deny":
+            result = {"ok": False, "error": f"Permission refusée : {capability}"}
+            self.platform.log("permission", "denied", {"tool": name, "capability": capability})
+            self.events.publish("tool.denied", {"tool": name, "capability": capability})
+            return result
+
+        if must_confirm and not self.confirm(self._confirm_summary(name, args)):
+            result = {"ok": False, "error": "Action refusée par l'utilisateur"}
+            self.platform.log("permission", "rejected", {"tool": name, "capability": capability})
+            self.events.publish("tool.denied", {"tool": name, "capability": capability})
+            return result
 
         try:
             result = {"ok": True, "data": self.tools.execute(name, args)}
         except Exception as exc:
             result = {"ok": False, "error": str(exc)}
+
         self.memory.log_action(name, args, result)
+        self.platform.log("tool", name, {"args": args, "result": result})
+        self.events.publish("tool.completed", {"tool": name, "result": result})
         return result
 
     def _run_local_fallback(self, clean: str, progress: ProgressFn) -> str | None:
@@ -550,15 +865,11 @@ class JarvisAgent:
             return None
 
         progress(f"LOCAL · {name.upper()}")
-        if tool.requires_confirmation and not self.confirm(self._confirm_summary(name, args)):
-            return "Action locale annulée."
+        outcome = self._execute_tool(name, args, progress)
+        if not outcome.get("ok"):
+            return f"Action locale impossible : {outcome.get('error', 'erreur inconnue')}"
 
-        try:
-            result = self.tools.execute(name, args)
-        except Exception as exc:
-            return f"Action locale impossible : {exc}"
-
-        self.memory.log_action(name, args, {"ok": True, "data": result})
+        result = outcome.get("data") or {}
         if name == "system_status":
             return (
                 f"CPU {result.get('cpu_percent', '?')} %, "
@@ -626,6 +937,131 @@ class JarvisAgent:
                 )
 
         return "J'ai atteint ma limite d'actions pour ce tour, H@CKERBOY."
+
+    def _run_standard_stream(
+        self,
+        clean: str,
+        progress: ProgressFn,
+        extra_context: str = "",
+        include_recent: bool = True,
+        max_steps: int = 6,
+        local_fallback: bool = True,
+    ):
+        if local_fallback:
+            local = self._run_local_fallback(clean, progress)
+            if local is not None:
+                self.events.publish("message.delta", {"content": local})
+                yield local
+                return
+
+        messages = self._messages(
+            clean,
+            extra_context=extra_context,
+            include_recent=include_recent,
+        )
+
+        for step in range(1, max(1, min(max_steps, 20)) + 1):
+            progress("THINKING" if step == 1 else f"TOOL LOOP · ÉTAPE {step}")
+            final_message: dict[str, Any] | None = None
+            try:
+                for event in self.llm.stream(messages, self.tools.definitions()):
+                    if event.get("type") == "content":
+                        delta = str(event.get("delta") or "")
+                        if delta:
+                            self.events.publish("message.delta", {"content": delta})
+                            yield delta
+                    elif event.get("type") == "message":
+                        value = event.get("message")
+                        if isinstance(value, dict):
+                            final_message = value
+            except Exception as exc:
+                message = f"Erreur du moteur IA : {exc}"
+                self.events.publish("message.delta", {"content": message})
+                yield message
+                return
+
+            message = final_message or {"role": "assistant", "content": ""}
+            calls = message.get("tool_calls") or []
+            if not calls:
+                return
+
+            messages.append(message)
+            for call in calls:
+                function = call.get("function") or {}
+                name = str(function.get("name") or "")
+                raw_args = function.get("arguments") or "{}"
+                try:
+                    args = (
+                        json.loads(raw_args)
+                        if isinstance(raw_args, str)
+                        else dict(raw_args)
+                    )
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    args = {}
+
+                tool_result = self._execute_tool(name, args, progress)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": str(call.get("id") or ""),
+                        "name": name,
+                        "content": json.dumps(tool_result, ensure_ascii=False),
+                    }
+                )
+
+        final = "J'ai atteint ma limite d'actions pour ce tour, H@CKERBOY."
+        self.events.publish("message.delta", {"content": final})
+        yield final
+
+    def stream(
+        self,
+        user_text: str,
+        mode: str = "standard",
+        progress: ProgressFn | None = None,
+        operator_id: str = "main",
+    ):
+        clean = user_text.strip()
+        if not clean:
+            return
+
+        progress = progress or (lambda _: None)
+        normalized_mode = mode.strip().lower()
+        clean_operator_id = operator_id.strip()[:120] or "main"
+
+        if normalized_mode != "standard":
+            # Specialized workflows currently synthesize one final answer, while
+            # their progress remains visible through EventBus/WebSocket.
+            answer = self.ask(
+                clean,
+                mode=normalized_mode,
+                progress=progress,
+                operator_id=clean_operator_id,
+            )
+            if answer:
+                yield answer
+            return
+
+        self._context.operator_id = clean_operator_id
+        self.memory.add_message("user", clean)
+        self.events.publish(
+            "message.started",
+            {"mode": normalized_mode, "operator_id": clean_operator_id},
+        )
+        parts: list[str] = []
+
+        try:
+            for delta in self._run_standard_stream(clean, progress):
+                parts.append(delta)
+                yield delta
+        finally:
+            self._context.operator_id = "main"
+
+        answer = "".join(parts)
+        self.memory.add_message("assistant", answer)
+        self.events.publish(
+            "message.completed",
+            {"mode": normalized_mode, "operator_id": clean_operator_id},
+        )
 
     def _run_operative(
         self,
@@ -733,3 +1169,6 @@ class JarvisAgent:
 
     def shutdown(self) -> None:
         self.scheduler.stop()
+        self.jobs.shutdown()
+        self.permissions.clear_session()
+        self.events.publish("core.shutdown", {})

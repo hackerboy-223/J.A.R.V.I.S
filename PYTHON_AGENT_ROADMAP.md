@@ -90,3 +90,43 @@ Selected batch:
 - MCP servers must be preconfigured; the model cannot invent a command to spawn
 - Python sandbox is restricted and is not an unrestricted operating-system shell
 - API binds to localhost by default; non-loopback bind requires `JARVIS_API_TOKEN`
+
+
+## Platform V2 — implementation batch
+
+Implemented on `feat/jarvis-platform-v2`:
+
+- [x] PermissionEngine persisted as allow / ask / deny
+- [x] EventBus shared by agent/API
+- [x] cooperative JobManager + global stop request
+- [x] Health service + Platform Center UI
+- [x] persistent crash logs + faulthandler output
+- [x] Windows system tray / background mode
+- [x] native notifications
+- [x] Task Center and Job Center controls
+- [x] Activity Center
+- [x] Windows clipboard read/write with permissions
+- [x] FTS5 local file index
+- [x] persistent workspaces
+- [x] persistent missions + checkpoints + resume prompt
+- [x] atomic file writes, diff preview and undo snapshots
+- [x] monitor enumeration + controlled screenshot capture
+- [x] window discovery/focus/minimize/maximize/restore
+- [x] optional semantic UI Automation by window/control name
+- [x] Windows Credential Manager integration through keyring
+- [x] first-run wizard
+- [x] structured legacy Prisma migration
+- [x] GitHub Release updater with digest verification when available
+- [x] Inno Setup installer recipe
+- [x] expanded automated tests and platform selftest
+- [x] FastAPI platform endpoints + WebSocket event stream
+- [x] real provider streaming for standard OpenAI-compatible agent mode
+- [x] optional Next.js -> Python Core streaming transport
+
+Still deliberately limited / follow-up validation:
+
+- Screen capture infrastructure is implemented; semantic image understanding still depends on the future vision-capable model layer.
+- Fine-grained UI Automation requires the optional `desktop-automation` extra and remains confirmation-gated.
+- Specialized multi-agent workflows expose live progress but currently emit their synthesized final answer as one response chunk.
+- Installer signing depends on obtaining a trusted signing identity/service.
+- The Python Core transport is opt-in through `JARVIS_CORE_URL` until local validation proves full feature parity.

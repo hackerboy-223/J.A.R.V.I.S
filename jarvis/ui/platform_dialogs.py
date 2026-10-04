@@ -1,0 +1,451 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from PySide6.QtCore import QSettings, Qt
+from jarvis.config import DATA_DIR, settings
+from jarvis.core.secrets import SecretStore
+
+from PySide6.QtWidgets import (
+    QComboBox,
+    QCheckBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QInputDialog,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+
+class PlatformCenterDialog(QDialog):
+    def __init__(self, agent, parent=None) -> None:
+        super().__init__(parent)
+        self.agent = agent
+        self.setWindowTitle("J.A.R.V.I.S. — Platform Center")
+        self.resize(920, 650)
+
+        layout = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+
+        self.health_text = QTextEdit()
+        self.health_text.setReadOnly(True)
+        health_page = QWidget()
+        health_layout = QVBoxLayout(health_page)
+        health_layout.addWidget(self.health_text)
+        logs_button = QPushButton("OUVRIR LES LOGS")
+        logs_button.clicked.connect(self._open_logs)
+        health_layout.addWidget(logs_button)
+        self.tabs.addTab(health_page, "HEALTH")
+
+        permissions_page = QWidget()
+        permissions_layout = QVBoxLayout(permissions_page)
+        self.permissions_table = QTableWidget(0, 3)
+        self.permissions_table.setHorizontalHeaderLabels(["Capability", "Decision", "Source"])
+        self.permissions_table.horizontalHeader().setStretchLastSection(True)
+        permissions_layout.addWidget(self.permissions_table)
+        perm_actions = QHBoxLayout()
+        for decision in ("allow", "ask", "deny"):
+            button = QPushButton(decision.upper())
+            button.clicked.connect(lambda _, value=decision: self._set_permission(value))
+            perm_actions.addWidget(button)
+        perm_actions.addStretch(1)
+        permissions_layout.addLayout(perm_actions)
+        self.tabs.addTab(permissions_page, "PERMISSIONS")
+
+        self.jobs_table = QTableWidget(0, 5)
+        self.jobs_table.setHorizontalHeaderLabels(["ID", "Titre", "État", "Progression", "Erreur"])
+        self.jobs_table.horizontalHeader().setStretchLastSection(True)
+        jobs_page = QWidget()
+        jobs_layout = QVBoxLayout(jobs_page)
+        jobs_layout.addWidget(self.jobs_table)
+        cancel_job = QPushButton("ANNULER LE JOB SÉLECTIONNÉ")
+        cancel_job.clicked.connect(self._cancel_selected_job)
+        jobs_layout.addWidget(cancel_job)
+        self.tabs.addTab(jobs_page, "JOBS")
+
+        self.tasks_table = QTableWidget(0, 5)
+        self.tasks_table.setHorizontalHeaderLabels(["ID", "Prompt", "Type", "Valeur", "Actif"])
+        self.tasks_table.horizontalHeader().setStretchLastSection(True)
+        tasks_page = QWidget()
+        tasks_layout = QVBoxLayout(tasks_page)
+        tasks_layout.addWidget(self.tasks_table)
+        task_actions = QHBoxLayout()
+        for label, action in (
+            ("PAUSE", "pause"),
+            ("REPRENDRE", "resume"),
+            ("ANNULER", "cancel"),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(lambda _, value=action: self._task_action(value))
+            task_actions.addWidget(button)
+        task_actions.addStretch(1)
+        tasks_layout.addLayout(task_actions)
+        self.tabs.addTab(tasks_page, "TASKS")
+
+        self.activity_text = QTextEdit()
+        self.activity_text.setReadOnly(True)
+        self.tabs.addTab(self.activity_text, "ACTIVITY")
+
+        self.workspace_text = QTextEdit()
+        self.workspace_text.setReadOnly(True)
+        workspace_page = QWidget()
+        workspace_layout = QVBoxLayout(workspace_page)
+        workspace_layout.addWidget(self.workspace_text)
+        add_workspace = QPushButton("AJOUTER UN WORKSPACE")
+        add_workspace.clicked.connect(self._add_workspace)
+        workspace_layout.addWidget(add_workspace)
+        self.tabs.addTab(workspace_page, "WORKSPACES")
+
+        self.missions_text = QTextEdit()
+        self.missions_text.setReadOnly(True)
+        mission_page = QWidget()
+        mission_layout = QVBoxLayout(mission_page)
+        mission_layout.addWidget(self.missions_text)
+        add_mission = QPushButton("NOUVELLE MISSION")
+        add_mission.clicked.connect(self._add_mission)
+        mission_layout.addWidget(add_mission)
+        self.tabs.addTab(mission_page, "MISSIONS")
+
+        files_page = QWidget()
+        files_layout = QVBoxLayout(files_page)
+        self.file_query = QLineEdit()
+        self.file_query.setPlaceholderText("Rechercher un fichier indexé…")
+        self.file_query.returnPressed.connect(self._search_files)
+        files_layout.addWidget(self.file_query)
+        file_actions = QHBoxLayout()
+        search_button = QPushButton("RECHERCHER")
+        search_button.clicked.connect(self._search_files)
+        index_button = QPushButton("INDEXER LE WORKSPACE")
+        index_button.clicked.connect(self._index_workspace)
+        file_actions.addWidget(search_button)
+        file_actions.addWidget(index_button)
+        file_actions.addStretch(1)
+        files_layout.addLayout(file_actions)
+        self.file_results = QTextEdit()
+        self.file_results.setReadOnly(True)
+        files_layout.addWidget(self.file_results)
+        self.tabs.addTab(files_page, "FILES")
+
+        settings_page = QWidget()
+        settings_form = QFormLayout(settings_page)
+        preferences = QSettings("HACKERBOY", "JARVIS")
+        self.background_check = QCheckBox()
+        self.background_check.setChecked(
+            preferences.value("desktop/background", True, type=bool)
+        )
+        self.notifications_check = QCheckBox()
+        self.notifications_check.setChecked(
+            preferences.value("desktop/notifications", True, type=bool)
+        )
+        self.exa_secret = QLineEdit()
+        self.exa_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        self.exa_secret.setPlaceholderText("laisser vide pour ne pas modifier")
+        self.groq_secret = QLineEdit()
+        self.groq_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        self.groq_secret.setPlaceholderText("laisser vide pour ne pas modifier")
+        self.openrouter_secret = QLineEdit()
+        self.openrouter_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        self.openrouter_secret.setPlaceholderText("laisser vide pour ne pas modifier")
+        settings_form.addRow("Arrière-plan", self.background_check)
+        settings_form.addRow("Notifications", self.notifications_check)
+        settings_form.addRow("Exa API key", self.exa_secret)
+        settings_form.addRow("Groq API key", self.groq_secret)
+        settings_form.addRow("OpenRouter API key", self.openrouter_secret)
+        save_settings = QPushButton("ENREGISTRER")
+        save_settings.clicked.connect(self._save_settings)
+        settings_form.addRow("", save_settings)
+        self.tabs.addTab(settings_page, "SETTINGS")
+
+        update_page = QWidget()
+        update_layout = QVBoxLayout(update_page)
+        self.update_text = QTextEdit()
+        self.update_text.setReadOnly(True)
+        self.update_text.setPlainText(
+            "Les mises à jour sont vérifiées via GitHub Releases. "
+            "Aucune installation n'est lancée sans confirmation."
+        )
+        update_layout.addWidget(self.update_text)
+        check_update = QPushButton("VÉRIFIER / TÉLÉCHARGER")
+        check_update.clicked.connect(self._check_update)
+        update_layout.addWidget(check_update)
+        self.tabs.addTab(update_page, "UPDATES")
+
+        actions = QHBoxLayout()
+        refresh = QPushButton("ACTUALISER")
+        refresh.clicked.connect(self.refresh)
+        stop = QPushButton("STOP GLOBAL")
+        stop.setStyleSheet("color:#ff7777; border-color:#ff5757;")
+        stop.clicked.connect(self._stop_all)
+        actions.addWidget(refresh)
+        actions.addWidget(stop)
+        actions.addStretch(1)
+        close = QPushButton("FERMER")
+        close.clicked.connect(self.accept)
+        actions.addWidget(close)
+        layout.addLayout(actions)
+
+        self.refresh()
+
+    def refresh(self) -> None:
+        health = self.agent.health.snapshot()
+        lines = [
+            f"ÉTAT GLOBAL : {'HEALTHY' if health['healthy'] else 'DEGRADED'}",
+            "",
+        ]
+        for item in health["checks"]:
+            lines.append(
+                f"[{'PASS' if item['ok'] else 'FAIL'}] {item['name']}: {item['detail']}"
+            )
+        self.health_text.setPlainText("\n".join(lines))
+
+        permissions = self.agent.permissions.list()
+        self.permissions_table.setRowCount(len(permissions))
+        for row, item in enumerate(permissions):
+            for col, key in enumerate(("capability", "decision", "source")):
+                self.permissions_table.setItem(row, col, QTableWidgetItem(str(item[key])))
+
+        jobs = self.agent.jobs.list(100)
+        self.jobs_table.setRowCount(len(jobs))
+        for row, item in enumerate(jobs):
+            values = (
+                item["id"],
+                item["title"],
+                item["state"],
+                f"{float(item.get('progress', 0)) * 100:.0f}%",
+                item.get("error") or "",
+            )
+            for col, value in enumerate(values):
+                self.jobs_table.setItem(row, col, QTableWidgetItem(str(value)))
+
+        tasks = self.agent.scheduler.list(100)
+        self.tasks_table.setRowCount(len(tasks))
+        for row, item in enumerate(tasks):
+            values = (
+                item.get("id", ""),
+                item.get("prompt", ""),
+                item.get("schedule_type", ""),
+                item.get("schedule_value", ""),
+                "YES" if item.get("enabled") else "NO",
+            )
+            for col, value in enumerate(values):
+                self.tasks_table.setItem(row, col, QTableWidgetItem(str(value)))
+
+        activity = self.agent.platform.activity(120)
+        self.activity_text.setPlainText(
+            "\n".join(
+                f"{item['created_at']} · {item['category'].upper()} · "
+                f"{item['action']} · {json.dumps(item.get('detail', {}), ensure_ascii=False)}"
+                for item in activity
+            )
+        )
+
+        self.workspace_text.setPlainText(
+            json.dumps(self.agent.platform.workspaces(), ensure_ascii=False, indent=2)
+        )
+        self.missions_text.setPlainText(
+            json.dumps(self.agent.platform.missions(), ensure_ascii=False, indent=2)
+        )
+
+    def _open_logs(self) -> None:
+        logs = (DATA_DIR / "logs").resolve()
+        logs.mkdir(parents=True, exist_ok=True)
+        try:
+            os.startfile(logs)
+        except Exception as exc:
+            QMessageBox.warning(self, "Logs", str(exc))
+
+    def _cancel_selected_job(self) -> None:
+        row = self.jobs_table.currentRow()
+        if row < 0:
+            return
+        item = self.jobs_table.item(row, 0)
+        if item is None:
+            return
+        self.agent.jobs.cancel(item.text())
+        self.refresh()
+
+    def _task_action(self, action: str) -> None:
+        row = self.tasks_table.currentRow()
+        if row < 0:
+            return
+        item = self.tasks_table.item(row, 0)
+        if item is None:
+            return
+        task_id = item.text()
+        try:
+            if action == "pause":
+                self.agent.scheduler.pause(task_id)
+            elif action == "resume":
+                self.agent.scheduler.resume(task_id)
+            elif action == "cancel":
+                self.agent.scheduler.cancel(task_id)
+        except Exception as exc:
+            QMessageBox.warning(self, "Task Center", str(exc))
+        self.refresh()
+
+    def _add_workspace(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        root = QFileDialog.getExistingDirectory(self, "Choisir un workspace")
+        if not root:
+            return
+        default_name = Path(root).name or "Workspace"
+        name, ok = QInputDialog.getText(
+            self,
+            "Workspace",
+            "Nom :",
+            text=default_name,
+        )
+        if not ok:
+            return
+        self.agent.platform.add_workspace(name or default_name, root, favorite=False)
+        self.agent.events.publish("workspace.updated", {"root_path": root})
+        self.refresh()
+
+    def _add_mission(self) -> None:
+        title, ok = QInputDialog.getText(self, "Mission", "Titre de la mission :")
+        if not ok or not title.strip():
+            return
+        mission = self.agent.platform.create_mission(title.strip(), mode="operative")
+        self.agent.platform.checkpoint(
+            mission["id"],
+            {"created_from": "desktop", "status": "ready"},
+        )
+        self.agent.events.publish("mission.created", mission)
+        self.refresh()
+
+    def _search_files(self) -> None:
+        query = self.file_query.text().strip()
+        if not query:
+            self.file_results.clear()
+            return
+        try:
+            results = self.agent.file_index.search(query, 80)
+        except Exception as exc:
+            self.file_results.setPlainText(str(exc))
+            return
+        self.file_results.setPlainText(
+            "\n".join(
+                f"{item['name']}\n  {item['path']}"
+                for item in results
+            ) or "Aucun résultat."
+        )
+
+    def _index_workspace(self) -> None:
+        def run(ctx):
+            ctx.progress(0.1, "Indexation du workspace")
+            result = self.agent.file_index.rebuild(
+                settings.workspace_root,
+                workspace_id="default",
+            )
+            ctx.progress(1.0, "Indexation terminée")
+            return result
+
+        job_id = self.agent.jobs.submit("Indexation fichiers", run)
+        QMessageBox.information(
+            self,
+            "File Index",
+            f"Indexation lancée en arrière-plan. Job: {job_id}",
+        )
+        self.refresh()
+
+    def _save_settings(self) -> None:
+        preferences = QSettings("HACKERBOY", "JARVIS")
+        preferences.setValue("desktop/background", self.background_check.isChecked())
+        preferences.setValue("desktop/notifications", self.notifications_check.isChecked())
+        preferences.sync()
+
+        try:
+            secrets_store = SecretStore()
+            pairs = (
+                ("EXA_API_KEY", self.exa_secret.text().strip()),
+                ("GROQ_API_KEY", self.groq_secret.text().strip()),
+                ("OPENROUTER_API_KEY", self.openrouter_secret.text().strip()),
+            )
+            for name, value in pairs:
+                if value:
+                    secrets_store.set(name, value)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Secrets",
+                f"Préférences enregistrées, mais Credential Manager est indisponible : {exc}",
+            )
+            return
+
+        self.exa_secret.clear()
+        self.groq_secret.clear()
+        self.openrouter_secret.clear()
+        QMessageBox.information(
+            self,
+            "Settings",
+            "Réglages enregistrés. Les nouveaux secrets seront pris en compte au prochain démarrage.",
+        )
+
+    def _check_update(self) -> None:
+        try:
+            result = self.agent.updater.download_latest_installer()
+        except Exception as exc:
+            self.update_text.setPlainText(f"Erreur de mise à jour : {exc}")
+            return
+
+        self.update_text.setPlainText(json.dumps(result, ensure_ascii=False, indent=2))
+        if not result.get("downloaded") or not result.get("path"):
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Mise à jour J.A.R.V.I.S.",
+            "L'installateur a été téléchargé et vérifié lorsque GitHub fournit un digest. "
+            "Voulez-vous le lancer maintenant ? J.A.R.V.I.S. devra ensuite être fermé.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.agent.updater.launch_installer(Path(str(result["path"])))
+        except Exception as exc:
+            QMessageBox.critical(self, "Mise à jour", str(exc))
+            return
+
+        window = self.parent()
+        if window is not None and hasattr(window, "shutdown_and_quit"):
+            window.shutdown_and_quit()
+
+    def _set_permission(self, decision: str) -> None:
+        row = self.permissions_table.currentRow()
+        if row < 0:
+            return
+        item = self.permissions_table.item(row, 0)
+        if item is None:
+            return
+        capability = item.text()
+        self.agent.permissions.set(capability, decision, scope="always")
+        self.agent.platform.log(
+            "permission",
+            "changed",
+            {"capability": capability, "decision": decision, "source": "desktop"},
+        )
+        self.agent.events.publish(
+            "permission.changed",
+            {"capability": capability, "decision": decision, "source": "desktop"},
+        )
+        self.refresh()
+
+    def _stop_all(self) -> None:
+        count = self.agent.jobs.cancel_all()
+        self.agent.events.publish("core.stop_requested", {"jobs": count, "source": "desktop"})
+        self.refresh()
