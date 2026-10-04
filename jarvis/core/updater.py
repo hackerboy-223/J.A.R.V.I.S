@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import subprocess
 from typing import Any
 
 import httpx
+
+from jarvis.config import DATA_DIR
 
 
 RELEASES_URL = "https://api.github.com/repos/hackerboy-223/J.A.R.V.I.S/releases/latest"
@@ -49,8 +52,51 @@ class UpdateService:
                 for chunk in response.iter_bytes():
                     handle.write(chunk)
         if sha256:
+            expected = sha256.split(":", 1)[-1].strip().lower()
             digest = hashlib.sha256(destination.read_bytes()).hexdigest()
-            if digest.lower() != sha256.lower():
+            if digest.lower() != expected:
                 destination.unlink(missing_ok=True)
                 raise RuntimeError("Le SHA-256 de la mise à jour ne correspond pas.")
         return destination
+
+
+    def download_latest_installer(self) -> dict[str, Any]:
+        release = self.latest()
+        if not release.get("available"):
+            return release
+        assets = list(release.get("assets") or [])
+        installer = next(
+            (
+                item
+                for item in assets
+                if str(item.get("name", "")).lower().endswith(".exe")
+                and "setup" in str(item.get("name", "")).lower()
+            ),
+            None,
+        )
+        if installer is None:
+            return {
+                **release,
+                "downloaded": False,
+                "reason": "Aucun installateur Windows .exe dans cette release.",
+            }
+
+        updates = (DATA_DIR / "updates").resolve()
+        destination = updates / str(installer["name"])
+        path = self.download(
+            str(installer["url"]),
+            destination,
+            str(installer.get("digest") or "") or None,
+        )
+        return {
+            **release,
+            "downloaded": True,
+            "path": str(path),
+        }
+
+    @staticmethod
+    def launch_installer(path: Path) -> None:
+        installer = path.expanduser().resolve()
+        if not installer.exists() or installer.suffix.lower() != ".exe":
+            raise ValueError("Installateur Windows invalide.")
+        subprocess.Popen([str(installer)], close_fds=True)
