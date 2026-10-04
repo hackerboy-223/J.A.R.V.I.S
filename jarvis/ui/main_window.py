@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import faulthandler
 import platform
+import queue
 import sys
 import threading
 import time
@@ -9,7 +10,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import Signal, QObject, QTimer
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtGui import QAction, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -18,17 +19,26 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTextEdit,
+    QSystemTrayIcon,
+    QStyle,
+    QDialog,
     QVBoxLayout,
     QWidget,
 )
 
 from jarvis.config import settings
 from jarvis.core.agent import JarvisAgent
+from jarvis.core.diagnostics import install_crash_hooks
+from jarvis.core.preferences import Preferences
 from jarvis.profile import OWNER_PROFILE
 from jarvis.ui.neural_widget import NeuralCoreWidget
+from jarvis.ui.first_run import FirstRunWizard
+from jarvis.ui.settings_dialog import SettingsDialog
+from jarvis.ui.system_center import SystemCenterDialog
 from jarvis.voice.vosk_stt import VoskHandsFreeListener as HandsFreeListener
 from jarvis.voice.tts import Speaker
 
@@ -44,6 +54,7 @@ class Bridge(QObject):
     barge_in = Signal()
     speech_finished = Signal()
     confirm_request = Signal(object)
+    runtime_event = Signal(object)
 
 
 class MainWindow(QMainWindow):
@@ -63,9 +74,14 @@ class MainWindow(QMainWindow):
         self.bridge.barge_in.connect(self._on_barge_in)
         self.bridge.speech_finished.connect(self._on_speech_finished)
         self.bridge.confirm_request.connect(self._handle_confirm_request)
+        self.bridge.runtime_event.connect(self._on_runtime_event)
 
         self.speaker = Speaker()
         self.agent = JarvisAgent(confirm=self._confirm_action)
+        self.preferences = Preferences()
+        self._quitting = False
+        self._active_job_id: str | None = None
+        self._event_subscription = self.agent.runtime.events.subscribe()
         self.hands_free = False
         self.listener: HandsFreeListener | None = None
 
@@ -77,6 +93,13 @@ class MainWindow(QMainWindow):
         self._typewriter_timer.timeout.connect(self._typewriter_tick)
 
         self._build_ui()
+        self._setup_tray()
+        self._event_thread = threading.Thread(
+            target=self._event_worker,
+            name="jarvis-ui-events",
+            daemon=True,
+        )
+        self._event_thread.start()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -181,6 +204,19 @@ class MainWindow(QMainWindow):
         memory_button = QPushButton("AGENT MEMORY")
         memory_button.clicked.connect(self._show_agent_memory)
         controls.addWidget(memory_button)
+
+        center_button = QPushButton("CONTROL CENTER")
+        center_button.clicked.connect(self._open_control_center)
+        controls.addWidget(center_button)
+
+        settings_button = QPushButton("SETTINGS")
+        settings_button.clicked.connect(self._open_settings)
+        controls.addWidget(settings_button)
+
+        stop_button = QPushButton("STOP")
+        stop_button.setStyleSheet("border-color:#ff5757; color:#ff8b8b;")
+        stop_button.clicked.connect(self._stop_all)
+        controls.addWidget(stop_button)
 
         controls.addStretch(1)
         layout.addLayout(controls)
@@ -526,14 +562,36 @@ class MainWindow(QMainWindow):
 
     def _ask_worker(self, text: str, spoken: bool, mode: str) -> None:
         del spoken
-        answer = self.agent.ask(
+        job_id = self.agent.submit(
             text,
             mode=mode,
-            progress=lambda status: self.bridge.agent_progress.emit(status),
+            on_progress=lambda status: self.bridge.agent_progress.emit(status),
         )
+        self._active_job_id = job_id
+
+        while True:
+            job = self.agent.runtime.jobs.get(job_id)
+            if job is None:
+                answer = "Erreur agent : job introuvable."
+                break
+            status = str(job.get("status", ""))
+            if status == "completed":
+                result = job.get("result") or {}
+                answer = str(result.get("answer") or "")
+                break
+            if status in {"failed", "cancelled"}:
+                answer = (
+                    "Opération annulée."
+                    if status == "cancelled"
+                    else f"Erreur agent : {job.get('error', 'inconnue')}"
+                )
+                break
+            time.sleep(0.05)
+
+        self._active_job_id = None
         self.bridge.answer.emit(answer)
 
-        if self.hands_free:
+        if self.hands_free and answer:
             self.bridge.voice_state.emit("SPEAKING")
             try:
                 listener = self._ensure_listener()
@@ -552,6 +610,113 @@ class MainWindow(QMainWindow):
                         self.bridge.voice_error.emit(
                             f"Erreur reprise microphone : {exc}"
                         )
+
+    def _setup_tray(self) -> None:
+        self.tray: QSystemTrayIcon | None = None
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        tray = QSystemTrayIcon(icon, self)
+        tray.setToolTip("J.A.R.V.I.S. · Core local")
+
+        menu = QMenu(self)
+        open_action = QAction("Ouvrir J.A.R.V.I.S.", self)
+        open_action.triggered.connect(self._show_from_tray)
+        menu.addAction(open_action)
+
+        control_action = QAction("Control Center", self)
+        control_action.triggered.connect(self._open_control_center)
+        menu.addAction(control_action)
+
+        voice_action = QAction("Basculer mains libres", self)
+        voice_action.triggered.connect(self._toggle_voice)
+        menu.addAction(voice_action)
+
+        menu.addSeparator()
+        quit_action = QAction("Quitter", self)
+        quit_action.triggered.connect(self._quit_application)
+        menu.addAction(quit_action)
+
+        tray.setContextMenu(menu)
+        tray.activated.connect(
+            lambda reason: self._show_from_tray()
+            if reason == QSystemTrayIcon.ActivationReason.DoubleClick
+            else None
+        )
+        tray.show()
+        self.tray = tray
+
+    def _event_worker(self) -> None:
+        while not self._quitting:
+            try:
+                event = self._event_subscription.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            self.bridge.runtime_event.emit(event.as_dict())
+
+    def _on_runtime_event(self, event: object) -> None:
+        if not isinstance(event, dict):
+            return
+        event_type = str(event.get("type", ""))
+        if not self.preferences.get_bool("desktop/notifications", True):
+            return
+        if self.tray is None:
+            return
+
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event_type == "job.completed":
+            self.tray.showMessage(
+                "J.A.R.V.I.S.",
+                "Tâche terminée.",
+                QSystemTrayIcon.MessageIcon.Information,
+                5000,
+            )
+        elif event_type == "job.failed":
+            self.tray.showMessage(
+                "J.A.R.V.I.S. · Erreur",
+                str(payload.get("error", "Une tâche a échoué.")),
+                QSystemTrayIcon.MessageIcon.Warning,
+                7000,
+            )
+
+    def _show_from_tray(self) -> None:
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _open_control_center(self) -> None:
+        SystemCenterDialog(self.agent, self).exec()
+
+    def _open_settings(self) -> None:
+        SettingsDialog(self).exec()
+
+    def _stop_all(self) -> None:
+        cancelled = self.agent.stop_all()
+        self.speaker.stop()
+        if self.listener is not None:
+            self.listener.stop()
+        self.live_caption.setText(f"STOP · {cancelled} job(s) en annulation")
+        self.core_status.setText("STOP REQUESTED")
+
+    def _shutdown(self) -> None:
+        if self._quitting:
+            return
+        self._quitting = True
+        self._typewriter_timer.stop()
+        self._event_subscription.close()
+        if self.listener is not None:
+            self.listener.shutdown()
+        self.speaker.stop()
+        self.agent.shutdown()
+        if self.tray is not None:
+            self.tray.hide()
+
+    def _quit_application(self) -> None:
+        self._shutdown()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _on_answer(self, answer: str) -> None:
         self._start_typewriter(answer)
@@ -578,11 +743,22 @@ class MainWindow(QMainWindow):
             self.live_caption.setText(state)
 
     def closeEvent(self, event) -> None:
-        self._typewriter_timer.stop()
-        if self.listener is not None:
-            self.listener.shutdown()
-        self.speaker.stop()
-        self.agent.shutdown()
+        if (
+            not self._quitting
+            and self.preferences.get_bool("desktop/background_mode", True)
+            and self.tray is not None
+        ):
+            self.hide()
+            self.tray.showMessage(
+                "J.A.R.V.I.S.",
+                "J.A.R.V.I.S. reste actif en arrière-plan.",
+                QSystemTrayIcon.MessageIcon.Information,
+                3500,
+            )
+            event.ignore()
+            return
+
+        self._shutdown()
         event.accept()
 
 
@@ -593,6 +769,7 @@ def run_app(*, diagnostic_seconds: float | None = None) -> int:
         faulthandler.enable(all_threads=True)
     except Exception:
         pass
+    install_crash_hooks()
 
     started = time.monotonic()
     print(
@@ -605,7 +782,14 @@ def run_app(*, diagnostic_seconds: float | None = None) -> int:
         print("[JARVIS] Qt: creating application…", flush=True)
         app = QApplication.instance() or QApplication(sys.argv)
         app.setApplicationName("J.A.R.V.I.S.")
-        app.setQuitOnLastWindowClosed(True)
+        app.setQuitOnLastWindowClosed(False)
+
+        if diagnostic_seconds is None:
+            preferences = Preferences()
+            if not preferences.first_run_complete:
+                wizard = FirstRunWizard(preferences)
+                if wizard.exec() != QDialog.DialogCode.Accepted:
+                    return 0
 
         print("[JARVIS] UI: constructing MainWindow…", flush=True)
         window = MainWindow()
