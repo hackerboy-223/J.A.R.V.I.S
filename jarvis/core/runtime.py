@@ -9,6 +9,7 @@ from jarvis.core.file_index import FileIndex
 from jarvis.core.jobs import JobManager
 from jarvis.core.missions import MissionStore
 from jarvis.core.permissions import PermissionEngine
+from jarvis.core.recent import RecentFileStore
 from jarvis.core.workspaces import WorkspaceStore
 
 
@@ -22,6 +23,7 @@ class JarvisRuntime:
         self.jobs = JobManager(db_path, self.events, self.activity)
         self.workspaces = WorkspaceStore(db_path)
         self.missions = MissionStore(db_path)
+        self.recent_files = RecentFileStore(db_path)
         self.file_index = FileIndex(db_path)
         self.changes = ChangeJournal(db_path)
 
