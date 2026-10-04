@@ -10,13 +10,25 @@ from jarvis.core.llm import LLMClient
 from jarvis.core.local_commands import LocalCommandRouter
 from jarvis.core.mcp_bridge import MCPManager
 from jarvis.core.memory import MemoryStore
+from jarvis.core.runtime import JarvisRuntime
 from jarvis.core.scheduler import TaskScheduler
 from jarvis.core.skills import SkillManager
 from jarvis.core.tools import Tool, ToolRegistry
 from jarvis.knowledge import KnowledgeBase
 from jarvis.profile import OWNER_PROFILE
-from jarvis.tools.files import file_patch, file_read, file_write
+from jarvis.tools.files import (
+    file_changes,
+    file_patch,
+    file_preview_patch,
+    file_read,
+    file_undo,
+    file_write,
+)
 from jarvis.tools.pc import pc_control
+from jarvis.tools.clipboard import clipboard_read, clipboard_write
+from jarvis.tools.screen import screen_capture
+from jarvis.tools.ui_automation import inspect_controls, ui_action
+from jarvis.tools.windows import list_windows, window_action
 from jarvis.tools.sandbox import python_sandbox
 from jarvis.tools.system import system_status
 from jarvis.tools.web import read_page, web_search
@@ -57,6 +69,7 @@ class JarvisAgent:
     def __init__(self, confirm: Callable[[str], bool] | None = None) -> None:
         self.memory = MemoryStore(settings.database_path)
         self.knowledge = KnowledgeBase(settings.database_path)
+        self.runtime = JarvisRuntime(settings.database_path)
         self.llm = LLMClient()
         self.local_router = LocalCommandRouter()
         self.workflows = WorkflowEngine(self.llm)
@@ -83,6 +96,7 @@ class JarvisAgent:
                 description="Read CPU, memory, platform and runtime status of the local PC.",
                 fn=system_status,
                 parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                capability="system.read",
             )
         )
 
@@ -107,6 +121,7 @@ class JarvisAgent:
                     "additionalProperties": False,
                 },
                 requires_confirmation=settings.confirm_safe_pc_actions,
+                capability="pc.control",
             )
         )
 
@@ -127,6 +142,7 @@ class JarvisAgent:
                     "required": ["query"],
                     "additionalProperties": False,
                 },
+                capability="network.web",
             )
         )
 
@@ -141,6 +157,7 @@ class JarvisAgent:
                     "required": ["url"],
                     "additionalProperties": False,
                 },
+                capability="network.web",
             )
         )
 
@@ -166,6 +183,7 @@ class JarvisAgent:
                     "required": ["query"],
                     "additionalProperties": False,
                 },
+                capability="knowledge.read",
             )
         )
 
@@ -186,6 +204,7 @@ class JarvisAgent:
                     "required": ["path"],
                     "additionalProperties": False,
                 },
+                capability="workspace.read",
             )
         )
 
@@ -205,6 +224,7 @@ class JarvisAgent:
                     "additionalProperties": False,
                 },
                 requires_confirmation=True,
+                capability="files.write",
             )
         )
 
@@ -228,6 +248,7 @@ class JarvisAgent:
                     "additionalProperties": False,
                 },
                 requires_confirmation=True,
+                capability="files.write",
             )
         )
 
@@ -249,6 +270,7 @@ class JarvisAgent:
                     "additionalProperties": False,
                 },
                 requires_confirmation=True,
+                capability="python.sandbox",
             )
         )
 
@@ -272,6 +294,7 @@ class JarvisAgent:
                 description="List MCP servers explicitly configured for JARVIS.",
                 fn=lambda _: {"servers": self.mcp.list_servers()},
                 parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                capability="mcp.inspect",
             )
         )
 
@@ -286,6 +309,7 @@ class JarvisAgent:
                     "required": ["server"],
                     "additionalProperties": False,
                 },
+                capability="mcp.inspect",
             )
         )
 
@@ -309,6 +333,7 @@ class JarvisAgent:
                     "additionalProperties": False,
                 },
                 requires_confirmation=True,
+                capability="mcp.call",
             )
         )
 
@@ -342,6 +367,7 @@ class JarvisAgent:
                     "additionalProperties": False,
                 },
                 requires_confirmation=True,
+                capability="scheduler.mutate",
             )
         )
 
@@ -357,6 +383,7 @@ class JarvisAgent:
                     },
                     "additionalProperties": False,
                 },
+                capability="scheduler.read",
             )
         )
 
@@ -377,6 +404,7 @@ class JarvisAgent:
                         "additionalProperties": False,
                     },
                     requires_confirmation=True,
+                    capability="scheduler.mutate",
                 )
             )
 
