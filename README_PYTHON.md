@@ -75,10 +75,10 @@ In a packaged build it is stored under `%LOCALAPPDATA%\JARVIS\models`.
 
 ## Build the Windows executable
 
-Build on Windows with Python 3.11. The output is a zipped application folder:
-`JARVIS.exe` plus its native libraries and runtime files. It is not a single-file
-portable executable; keeping the native files beside the executable avoids
-PyInstaller extraction and audio/Qt loading problems.
+Build on Windows with Python 3.11. The build produces both a portable ZIP and
+a real Windows installer named `JARVIS-Setup-x64.exe`. The installed application
+still keeps PyInstaller's native runtime files beside `JARVIS.exe`; avoiding a
+one-file bundle reduces extraction and audio/Qt loading problems.
 
 ```powershell
 python -m pip install -e ".[build]"
@@ -87,9 +87,10 @@ python -m jarvis.selftest
 .\packaging\build-windows.ps1
 ```
 
-The archive is written to `dist\JARVIS-Windows-x64.zip`. The GitHub Actions
-workflow also builds it on Windows when changes are pushed to
-`python-agent-rewrite`, and retains the downloadable build artifact for 14 days.
+The portable archive is written to `dist\JARVIS-Windows-x64.zip` and the installer
+to `dist\JARVIS-Setup-x64.exe`. The GitHub Actions workflow builds both on Windows
+when relevant changes are pushed to `main`, and retains the downloadable artifact
+for 14 days.
 
 Packaged settings and runtime data are stored in
 `%LOCALAPPDATA%\JARVIS\` (or `%APPDATA%\JARVIS\` if Local AppData is unavailable).
