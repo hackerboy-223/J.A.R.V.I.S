@@ -22,7 +22,6 @@ for package in (
     "mcp",
     "mss",
     "numpy",
-    "platformdirs",
     "pyttsx3",
     "sounddevice",
     "vosk",
