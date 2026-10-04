@@ -17,3 +17,16 @@ if (Test-Path $archive) {
 }
 Compress-Archive -Path (Join-Path $distribution "*") -DestinationPath $archive
 Write-Host "Build Windows prête : $archive"
+
+# Optional installer build with Inno Setup.
+$isccCandidates = @(
+    "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+)
+$iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($iscc) {
+    & $iscc (Join-Path $projectRoot "packaging\JARVIS.iss")
+    Write-Host "Installateur Inno Setup généré."
+} else {
+    Write-Host "Inno Setup non détecté : archive ZIP générée, installateur ignoré."
+}
