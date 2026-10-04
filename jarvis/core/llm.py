@@ -211,6 +211,157 @@ class LLMClient:
         data = response.json()
         return {"message": data["choices"][0]["message"]}
 
+    def _stream_openai_http(
+        self,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+    ):
+        request = dict(payload)
+        request["stream"] = True
+        content_parts: list[str] = []
+        tool_calls: dict[int, dict[str, Any]] = {}
+
+        with httpx.stream(
+            "POST",
+            url,
+            headers=headers,
+            json=request,
+            timeout=90,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if raw == "[DONE]":
+                    break
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                choices = data.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content")
+                if isinstance(content, str) and content:
+                    content_parts.append(content)
+                    yield {"type": "content", "delta": content}
+
+                for call in delta.get("tool_calls") or []:
+                    index = int(call.get("index", 0) or 0)
+                    current = tool_calls.setdefault(
+                        index,
+                        {
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        },
+                    )
+                    if call.get("id"):
+                        current["id"] = str(call["id"])
+                    function = call.get("function") or {}
+                    if function.get("name"):
+                        current["function"]["name"] += str(function["name"])
+                    if function.get("arguments"):
+                        current["function"]["arguments"] += str(function["arguments"])
+
+        yield {
+            "type": "message",
+            "message": {
+                "role": "assistant",
+                "content": "".join(content_parts),
+                **(
+                    {"tool_calls": [tool_calls[index] for index in sorted(tool_calls)]}
+                    if tool_calls
+                    else {}
+                ),
+            },
+        }
+
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ):
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.4,
+            "max_tokens": 1536,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        if self.provider in {"huggingface", "hf"}:
+            result = self._complete_huggingface(messages, tools)
+            message = result["message"]
+            content = str(message.get("content") or "")
+            if content:
+                yield {"type": "content", "delta": content}
+            yield {"type": "message", "message": message}
+            return
+
+        if self.provider in {"ollama", "local"}:
+            payload["model"] = self.ollama_model
+            yield from self._stream_openai_http(
+                f"{self.ollama_base_url}/chat/completions",
+                {"Content-Type": "application/json"},
+                payload,
+            )
+            return
+
+        if self.provider in {"openrouter", "open_router"} or "openrouter.ai" in self.base_url:
+            payload["model"] = self.model or "openrouter/free"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "X-Title": self.openrouter_title or "J.A.R.V.I.S.",
+            }
+            if self.openrouter_referer:
+                headers["HTTP-Referer"] = self.openrouter_referer
+            try:
+                yield from self._stream_openai_http(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers,
+                    payload,
+                )
+            except Exception as openrouter_exc:
+                fallback = dict(payload)
+                fallback["model"] = self.ollama_model
+                try:
+                    yield from self._stream_openai_http(
+                        f"{self.ollama_base_url}/chat/completions",
+                        {"Content-Type": "application/json"},
+                        fallback,
+                    )
+                except Exception as ollama_exc:
+                    raise RuntimeError(
+                        "OpenRouter streaming indisponible et fallback Ollama indisponible. "
+                        f"OpenRouter: {openrouter_exc} | Ollama: {ollama_exc}"
+                    ) from openrouter_exc
+            return
+
+        if not self.api_key and not self._is_local():
+            result = self._complete_openai_compatible(messages, tools)
+            message = result["message"]
+            content = str(message.get("content") or "")
+            if content:
+                yield {"type": "content", "delta": content}
+            yield {"type": "message", "message": message}
+            return
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        yield from self._stream_openai_http(
+            f"{self.base_url}/chat/completions",
+            headers,
+            payload,
+        )
+
     def complete(
         self,
         messages: list[dict[str, Any]],
