@@ -19,6 +19,8 @@ for package in (
     "faster_whisper",
     "huggingface_hub",
     "mcp",
+    "mss",
+    "keyring",
     "numpy",
     "pyttsx3",
     "sounddevice",
@@ -32,6 +34,10 @@ for package in (
 hiddenimports.extend(
     [
         "pyttsx3.drivers.sapi5",
+        "win32clipboard",
+        "win32con",
+        "win32gui",
+        "win32process",
         "win32com.client",
         "win32com.client.gencache",
     ]
