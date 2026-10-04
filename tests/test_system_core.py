@@ -44,14 +44,7 @@ class JobManagerTests(unittest.TestCase):
             jobs = JobManager(db, bus, activity)
             job_id = jobs.submit("demo", lambda ctx: {"ok": True})
 
-            deadline = time.time() + 3
-            while time.time() < deadline:
-                job = jobs.get(job_id)
-                if job and job["status"] in {"completed", "failed", "cancelled"}:
-                    break
-                time.sleep(0.02)
-
-            job = jobs.get(job_id)
+            job = jobs.wait(job_id, timeout=3)
             self.assertIsNotNone(job)
             self.assertEqual(job["status"], "completed")
             self.assertEqual(job["result"], {"ok": True})
@@ -70,14 +63,9 @@ class JobManagerTests(unittest.TestCase):
             job_id = jobs.submit("cancel", runner)
             self.assertTrue(jobs.cancel(job_id))
 
-            deadline = time.time() + 3
-            while time.time() < deadline:
-                job = jobs.get(job_id)
-                if job and job["status"] in {"cancelled", "failed", "completed"}:
-                    break
-                time.sleep(0.02)
-
-            self.assertEqual(jobs.get(job_id)["status"], "cancelled")
+            job = jobs.wait(job_id, timeout=3)
+            self.assertIsNotNone(job)
+            self.assertEqual(job["status"], "cancelled")
 
 
 class WorkspaceIndexTests(unittest.TestCase):
