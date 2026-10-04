@@ -930,6 +930,131 @@ class JarvisAgent:
 
         return "J'ai atteint ma limite d'actions pour ce tour, H@CKERBOY."
 
+    def _run_standard_stream(
+        self,
+        clean: str,
+        progress: ProgressFn,
+        extra_context: str = "",
+        include_recent: bool = True,
+        max_steps: int = 6,
+        local_fallback: bool = True,
+    ):
+        if local_fallback:
+            local = self._run_local_fallback(clean, progress)
+            if local is not None:
+                self.events.publish("message.delta", {"content": local})
+                yield local
+                return
+
+        messages = self._messages(
+            clean,
+            extra_context=extra_context,
+            include_recent=include_recent,
+        )
+
+        for step in range(1, max(1, min(max_steps, 20)) + 1):
+            progress("THINKING" if step == 1 else f"TOOL LOOP · ÉTAPE {step}")
+            final_message: dict[str, Any] | None = None
+            try:
+                for event in self.llm.stream(messages, self.tools.definitions()):
+                    if event.get("type") == "content":
+                        delta = str(event.get("delta") or "")
+                        if delta:
+                            self.events.publish("message.delta", {"content": delta})
+                            yield delta
+                    elif event.get("type") == "message":
+                        value = event.get("message")
+                        if isinstance(value, dict):
+                            final_message = value
+            except Exception as exc:
+                message = f"Erreur du moteur IA : {exc}"
+                self.events.publish("message.delta", {"content": message})
+                yield message
+                return
+
+            message = final_message or {"role": "assistant", "content": ""}
+            calls = message.get("tool_calls") or []
+            if not calls:
+                return
+
+            messages.append(message)
+            for call in calls:
+                function = call.get("function") or {}
+                name = str(function.get("name") or "")
+                raw_args = function.get("arguments") or "{}"
+                try:
+                    args = (
+                        json.loads(raw_args)
+                        if isinstance(raw_args, str)
+                        else dict(raw_args)
+                    )
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    args = {}
+
+                tool_result = self._execute_tool(name, args, progress)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": str(call.get("id") or ""),
+                        "name": name,
+                        "content": json.dumps(tool_result, ensure_ascii=False),
+                    }
+                )
+
+        final = "J'ai atteint ma limite d'actions pour ce tour, H@CKERBOY."
+        self.events.publish("message.delta", {"content": final})
+        yield final
+
+    def stream(
+        self,
+        user_text: str,
+        mode: str = "standard",
+        progress: ProgressFn | None = None,
+        operator_id: str = "main",
+    ):
+        clean = user_text.strip()
+        if not clean:
+            return
+
+        progress = progress or (lambda _: None)
+        normalized_mode = mode.strip().lower()
+        clean_operator_id = operator_id.strip()[:120] or "main"
+        self._context.operator_id = clean_operator_id
+        self.memory.add_message("user", clean)
+        self.events.publish(
+            "message.started",
+            {"mode": normalized_mode, "operator_id": clean_operator_id},
+        )
+        parts: list[str] = []
+
+        try:
+            if normalized_mode == "standard":
+                for delta in self._run_standard_stream(clean, progress):
+                    parts.append(delta)
+                    yield delta
+            else:
+                # Specialized workflows currently produce a synthesized final answer.
+                # They still expose granular progress through EventBus/WebSocket.
+                answer = self.ask(
+                    clean,
+                    mode=normalized_mode,
+                    progress=progress,
+                    operator_id=clean_operator_id,
+                )
+                parts.append(answer)
+                if answer:
+                    yield answer
+        finally:
+            self._context.operator_id = "main"
+
+        answer = "".join(parts)
+        if normalized_mode == "standard":
+            self.memory.add_message("assistant", answer)
+        self.events.publish(
+            "message.completed",
+            {"mode": normalized_mode, "operator_id": clean_operator_id},
+        )
+
     def _run_operative(
         self,
         clean: str,
