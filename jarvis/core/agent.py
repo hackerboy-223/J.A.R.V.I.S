@@ -35,9 +35,9 @@ from jarvis.tools.pc import pc_control
 from jarvis.tools.sandbox import python_sandbox
 from jarvis.tools.screen import capture_screen, list_monitors
 from jarvis.tools.system import system_status
-from jarvis.tools.ui_automation import activate_ui, inspect_ui
+from jarvis.tools.ui_automation import activate_ui, control_action, inspect_ui
 from jarvis.tools.web import read_page, web_search
-from jarvis.tools.windows import active_window, focus_window, list_windows
+from jarvis.tools.windows import active_window, focus_window, list_windows, window_action
 from jarvis.workflows import WorkflowEngine
 
 
@@ -586,6 +586,49 @@ class JarvisAgent:
                 requires_confirmation=True,
             )
         )
+
+        self.tools.register(
+            Tool(
+                name="window_action",
+                description="Focus, minimize, maximize or restore a named visible Windows window.",
+                fn=window_action,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "action": {
+                            "type": "string",
+                            "enum": ["focus", "minimize", "maximize", "restore"],
+                        },
+                    },
+                    "required": ["title", "action"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
+        self.tools.register(
+            Tool(
+                name="ui_control",
+                description=(
+                    "Interact with a named UI Automation control by semantic name. "
+                    "Raw pointer coordinates are intentionally unsupported."
+                ),
+                fn=control_action,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "window": {"type": "string"},
+                        "control": {"type": "string"},
+                        "action": {"type": "string", "enum": ["click", "set_text"]},
+                        "value": {"type": "string"},
+                    },
+                    "required": ["window", "control", "action"],
+                    "additionalProperties": False,
+                },
+                requires_confirmation=True,
+            )
+        )
         self.tools.register(
             Tool(
                 name="search_files",
@@ -742,6 +785,8 @@ class JarvisAgent:
             "focus_window": "windows.focus",
             "inspect_ui": "windows.inspect",
             "activate_ui": "windows.focus",
+            "window_action": "windows.focus",
+            "ui_control": "ui.click",
             "capture_screen": "screen.read",
             "list_monitors": "screen.read",
             "web_search": "network.web",
