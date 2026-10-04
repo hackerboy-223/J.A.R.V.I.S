@@ -68,11 +68,14 @@ def window_action(args: dict[str, Any]) -> dict[str, Any]:
         user32.ShowWindow(handle, 9)  # SW_RESTORE
         ok = bool(user32.SetForegroundWindow(handle))
     elif action == "minimize":
-        ok = bool(user32.ShowWindow(handle, 6))  # SW_MINIMIZE
+        user32.ShowWindow(handle, 6)  # SW_MINIMIZE
+        ok = True
     elif action == "maximize":
-        ok = bool(user32.ShowWindow(handle, 3))  # SW_MAXIMIZE
+        user32.ShowWindow(handle, 3)  # SW_MAXIMIZE
+        ok = True
     elif action == "restore":
-        ok = bool(user32.ShowWindow(handle, 9))
+        user32.ShowWindow(handle, 9)  # SW_RESTORE
+        ok = True
     else:
         raise ValueError("Actions autorisées : focus, minimize, maximize, restore.")
 
