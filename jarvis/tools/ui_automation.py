@@ -58,8 +58,16 @@ def ui_action(args: dict[str, Any]) -> dict[str, Any]:
     elif action == "type":
         if len(value) > 10000:
             raise ValueError("Texte trop long pour l'automatisation UI.")
+        # Never pass model text through pywinauto's SendKeys grammar:
+        # sequences such as {ENTER}, ^A or %F4 would be interpreted as keys.
+        setter = getattr(control, "set_edit_text", None)
+        if not callable(setter):
+            raise ValueError(
+                "La saisie est autorisée uniquement sur un contrôle éditable "
+                "supportant set_edit_text."
+            )
         control.set_focus()
-        control.type_keys(value, with_spaces=True, set_foreground=True)
+        setter(value)
     else:
         raise ValueError("Actions autorisées : click, type.")
 
