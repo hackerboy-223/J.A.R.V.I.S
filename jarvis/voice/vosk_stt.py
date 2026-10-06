@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import queue
+import shutil
 import threading
 import time
 import unicodedata
@@ -49,6 +50,7 @@ class VoskHandsFreeListener:
         self._stream: sd.RawInputStream | None = None
         self._thread: threading.Thread | None = None
         self._model: Model | None = None
+        self._model_lock = threading.RLock()
         self._last_partial = ""
         self._last_voice_at = time.monotonic()
 
@@ -145,37 +147,86 @@ class VoskHandsFreeListener:
         if settings.vosk_model_path.strip():
             raise RuntimeError(f"Modèle Vosk introuvable : {target}")
 
-        models_dir = DATA_DIR / "models"
+        models_dir = (DATA_DIR / "models").resolve()
         models_dir.mkdir(parents=True, exist_ok=True)
         archive = models_dir / f"{VOSK_FR_MODEL_NAME}.zip"
+        part = archive.with_name(archive.name + ".part")
+        max_archive_bytes = 250 * 1024 * 1024
+        max_extract_bytes = 750 * 1024 * 1024
+
+        part.unlink(missing_ok=True)
+        archive.unlink(missing_ok=True)
 
         self.on_status("VOSK · TÉLÉCHARGEMENT MODÈLE FRANÇAIS…")
-        with httpx.stream("GET", VOSK_FR_MODEL_URL, timeout=90, follow_redirects=True) as response:
-            response.raise_for_status()
-            with archive.open("wb") as handle:
-                for chunk in response.iter_bytes(chunk_size=1024 * 256):
-                    handle.write(chunk)
-
-        self.on_status("VOSK · INSTALLATION DU MODÈLE…")
-        with zipfile.ZipFile(archive) as zf:
-            zf.extractall(models_dir)
-
+        downloaded = 0
         try:
-            archive.unlink()
-        except OSError:
-            pass
+            with httpx.stream(
+                "GET",
+                VOSK_FR_MODEL_URL,
+                timeout=httpx.Timeout(120, connect=15),
+                follow_redirects=True,
+                headers={"User-Agent": "JARVIS-Vosk-Installer/1"},
+            ) as response:
+                response.raise_for_status()
 
-        if not target.exists():
-            raise RuntimeError("Le modèle Vosk a été téléchargé mais son dossier est introuvable.")
-        return target
+                declared_raw = response.headers.get("content-length")
+                if declared_raw and declared_raw.isdigit():
+                    declared = int(declared_raw)
+                    if declared > max_archive_bytes:
+                        raise RuntimeError("Archive Vosk anormalement volumineuse.")
+
+                with part.open("wb") as handle:
+                    for chunk in response.iter_bytes(chunk_size=1024 * 256):
+                        if not chunk:
+                            continue
+                        downloaded += len(chunk)
+                        if downloaded > max_archive_bytes:
+                            raise RuntimeError("Archive Vosk trop volumineuse.")
+                        handle.write(chunk)
+
+            if downloaded <= 0:
+                raise RuntimeError("Téléchargement Vosk vide.")
+            part.replace(archive)
+
+            self.on_status("VOSK · INSTALLATION DU MODÈLE…")
+            with zipfile.ZipFile(archive) as zf:
+                members = zf.infolist()
+                total_uncompressed = sum(max(0, item.file_size) for item in members)
+                if total_uncompressed > max_extract_bytes:
+                    raise RuntimeError("Archive Vosk décompressée trop volumineuse.")
+
+                for member in members:
+                    destination = (models_dir / member.filename).resolve()
+                    try:
+                        destination.relative_to(models_dir)
+                    except ValueError as exc:
+                        raise RuntimeError(
+                            "Archive Vosk invalide : chemin hors du dossier modèles."
+                        ) from exc
+
+                zf.extractall(models_dir)
+
+            if not target.exists() or not target.is_dir():
+                raise RuntimeError(
+                    "Le modèle Vosk a été téléchargé mais son dossier est introuvable."
+                )
+            return target
+        except Exception:
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+            raise
+        finally:
+            part.unlink(missing_ok=True)
+            archive.unlink(missing_ok=True)
 
     def _ensure_model(self) -> Model:
-        if self._model is None:
-            path = self._ensure_model_files()
-            self.on_status("VOSK · CHARGEMENT LOW-MEM…")
-            self._model = Model(str(path))
-            self.on_status("VOSK · PRÊT")
-        return self._model
+        with self._model_lock:
+            if self._model is None:
+                path = self._ensure_model_files()
+                self.on_status("VOSK · CHARGEMENT LOW-MEM…")
+                self._model = Model(str(path))
+                self.on_status("VOSK · PRÊT")
+            return self._model
 
     def start(self) -> None:
         if self._active.is_set():
