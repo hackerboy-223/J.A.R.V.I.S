@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "J.A.R.V.I.S. — Assistant IA vocal façon Iron Man, propulsé par GLM (Z.ai) et Hugging Face",
   "private": true,
   "scripts": {
