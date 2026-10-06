@@ -87,6 +87,10 @@ def _safe_public_url(raw: str) -> str:
     parsed = urlparse(target)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("URL invalide.")
+    if parsed.scheme != "https":
+        raise ValueError(
+            "La lecture de pages publiques exige HTTPS."
+        )
 
     host = parsed.hostname.lower()
     if host in {"localhost", "127.0.0.1", "::1"}:
@@ -115,6 +119,8 @@ def web_search(args: dict) -> dict:
     query = str(args.get("query", "")).strip()
     if not query:
         raise ValueError("query est requis.")
+    if len(query) > 1000:
+        raise ValueError("query est trop longue (1000 caractères max).")
     if not settings.exa_api_key:
         raise RuntimeError(
             "EXA_API_KEY n'est pas configuré. "
