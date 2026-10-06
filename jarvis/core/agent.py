@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import threading
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from jarvis.config import settings
 from jarvis.core.events import EventBus
@@ -12,6 +13,7 @@ from jarvis.core.health import HealthService
 from jarvis.core.jobs import JobManager
 from jarvis.core.llm import LLMClient
 from jarvis.core.local_commands import LocalCommandRouter
+from jarvis.core.logging_setup import _redact
 from jarvis.core.mcp_bridge import MCPManager
 from jarvis.core.memory import MemoryStore
 from jarvis.core.permissions import PermissionEngine
@@ -806,6 +808,92 @@ class JarvisAgent:
         }
         return mapping.get(name, "system.read")
 
+    @staticmethod
+    def _audit_value(key: str, value: Any, depth: int = 0) -> Any:
+        """Keep audit logs useful without persisting tool payload contents."""
+        sensitive_keys = {
+            "content",
+            "text",
+            "code",
+            "old",
+            "new",
+            "value",
+            "prompt",
+            "password",
+            "token",
+            "secret",
+            "api_key",
+            "tool_result",
+        }
+        lowered = key.lower()
+
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+
+        if isinstance(value, str):
+            redacted = _redact(value)
+            if lowered in sensitive_keys:
+                return {"redacted": True, "chars": len(value)}
+            if lowered in {"url", "target"} and redacted.lower().startswith(("http://", "https://")):
+                try:
+                    parsed = urlparse(redacted)
+                    return {
+                        "scheme": parsed.scheme,
+                        "host": parsed.hostname or "",
+                        "path_chars": len(parsed.path or ""),
+                    }
+                except Exception:
+                    return {"redacted": True, "chars": len(value)}
+            if len(redacted) > 240:
+                return {"chars": len(value), "preview": redacted[:120] + "…"}
+            return redacted
+
+        if depth >= 2:
+            if isinstance(value, dict):
+                return {"keys": sorted(str(item) for item in value)[:40]}
+            if isinstance(value, (list, tuple, set)):
+                return {"items": len(value)}
+            return _redact(type(value).__name__)
+
+        if isinstance(value, dict):
+            return {
+                str(item_key)[:80]: JarvisAgent._audit_value(
+                    str(item_key),
+                    item_value,
+                    depth + 1,
+                )
+                for item_key, item_value in list(value.items())[:40]
+            }
+
+        if isinstance(value, (list, tuple, set)):
+            sequence = list(value)
+            return {
+                "items": len(sequence),
+                "sample": [
+                    JarvisAgent._audit_value(key, item, depth + 1)
+                    for item in sequence[:5]
+                ],
+            }
+
+        return _redact(str(value))[:240]
+
+    @classmethod
+    def _audit_record(
+        cls,
+        name: str,
+        args: dict[str, Any],
+        result: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        audit_args = {
+            str(key)[:80]: cls._audit_value(str(key), value)
+            for key, value in list(args.items())[:40]
+        }
+        audit_result = {
+            str(key)[:80]: cls._audit_value(str(key), value)
+            for key, value in list(result.items())[:40]
+        }
+        return audit_args, audit_result
+
     def _execute_tool(
         self,
         name: str,
@@ -845,8 +933,13 @@ class JarvisAgent:
         except Exception as exc:
             result = {"ok": False, "error": str(exc)}
 
-        self.memory.log_action(name, args, result)
-        self.platform.log("tool", name, {"args": args, "result": result})
+        audit_args, audit_result = self._audit_record(name, args, result)
+        self.memory.log_action(name, audit_args, audit_result)
+        self.platform.log(
+            "tool",
+            name,
+            {"args": audit_args, "result": audit_result},
+        )
         self.events.publish("tool.completed", {"tool": name, "result": result})
         return result
 
