@@ -8,6 +8,7 @@ from typing import Any
 
 from jarvis.config import settings
 from jarvis.core.platform_store import PlatformStore
+from jarvis.core.sqlite_utils import open_sqlite
 
 
 class HealthService:
@@ -21,7 +22,7 @@ class HealthService:
             checks.append({"name": name, "ok": bool(ok), "detail": detail})
 
         try:
-            with closing(sqlite3.connect(settings.database_path, timeout=3)) as db:
+            with closing(open_sqlite(settings.database_path, timeout=3)) as db:
                 db.execute("SELECT 1").fetchone()
             add("sqlite", True, str(settings.database_path))
         except Exception as exc:
