@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules, is_module_or_submodule
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata, is_module_or_submodule
 
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parent
@@ -11,6 +11,12 @@ datas = []
 binaries = []
 hiddenimports = collect_submodules("jarvis")
 
+# Runtime version lookup uses importlib.metadata.
+try:
+    datas.extend(copy_metadata("jarvis-desktop"))
+except Exception:
+    pass
+
 # These packages use runtime discovery, native libraries, or package data that
 # PyInstaller cannot always infer from static imports.
 for package in (
@@ -18,10 +24,7 @@ for package in (
     "ctranslate2",
     "faster_whisper",
     "huggingface_hub",
-    "mss",
     "keyring",
-    "numpy",
-    "pyttsx3",
     "_sounddevice_data",
     "vosk",
 ):
@@ -65,7 +68,13 @@ analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["pytest", "IPython", "mcp.cli"],
+    excludes=[
+        "pytest",
+        "IPython",
+        "mcp.cli",
+        "numpy.f2py.tests",
+        "numpy.testing.tests",
+    ],
     noarchive=False,
 )
 
