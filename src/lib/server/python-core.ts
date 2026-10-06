@@ -4,6 +4,38 @@ import type { ChatSseEvent } from "@/lib/types";
 const CORE_URL = process.env.JARVIS_CORE_URL?.trim().replace(/\/$/, "") ?? "";
 const CORE_TOKEN = process.env.JARVIS_CORE_TOKEN?.trim() ?? "";
 
+function validatedCoreUrl(): string {
+  if (!CORE_URL) {
+    throw new Error("JARVIS_CORE_URL n'est pas configuré");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(CORE_URL);
+  } catch {
+    throw new Error("JARVIS_CORE_URL est invalide");
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error("Les credentials intégrés dans JARVIS_CORE_URL sont interdits");
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const loopback =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]";
+
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    throw new Error(
+      "Le Python Core distant doit utiliser HTTPS; HTTP est réservé à localhost"
+    );
+  }
+
+  return parsed.toString().replace(/\/$/, "");
+}
+
 function makeTitle(content: string): string {
   const firstLine = content
     .split("\n")
@@ -67,7 +99,16 @@ export async function proxyPythonCoreChat(
   };
   if (CORE_TOKEN) headers.Authorization = `Bearer ${CORE_TOKEN}`;
 
-  const upstream = await fetch(`${CORE_URL}/v1/chat/completions`, {
+  let coreUrl: string;
+  try {
+    coreUrl = validatedCoreUrl();
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Configuration Python Core invalide";
+    return Response.json({ error: message }, { status: 502 });
+  }
+
+  const upstream = await fetch(`${coreUrl}/v1/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify({
