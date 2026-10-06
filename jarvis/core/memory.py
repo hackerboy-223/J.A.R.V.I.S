@@ -6,18 +6,18 @@ import sqlite3
 import threading
 from pathlib import Path
 from typing import Any
+from jarvis.core.sqlite_utils import open_sqlite, prepare_sqlite
 
 
 class MemoryStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._lock = threading.RLock()
+        prepare_sqlite(self.path)
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return open_sqlite(self.path)
 
     def _init_db(self) -> None:
         with self._lock, closing(self._connect()) as db:
