@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from jarvis.config import settings
+from jarvis.diagnostics import voice_diagnostics, write_diagnostic_report
 from jarvis.core.agent import JarvisAgent
 from jarvis.profile import OWNER_PROFILE
 from jarvis.ui.first_run import FirstRunWizard, setup_completed
@@ -593,24 +594,30 @@ class MainWindow(QMainWindow):
 
     def _diagnose_microphone(self) -> None:
         try:
-            devices = HandsFreeListener.input_devices()
+            result = voice_diagnostics()
+            report = write_diagnostic_report("voice-doctor", result)
         except Exception as exc:
             QMessageBox.critical(self, "Diagnostic microphone", str(exc))
             return
 
-        if not devices:
-            QMessageBox.warning(
-                self,
-                "Diagnostic microphone",
-                "Aucun périphérique d'entrée audio n'a été détecté.",
-            )
-            return
-
-        lines = ["Entrées audio détectées :", ""]
-        for dev in devices:
+        lines = [
+            "État : " + ("OK" if result.get("healthy") else "PROBLÈME DÉTECTÉ"),
+            "",
+            "Composants :",
+        ]
+        for check in result.get("checks", []):
+            icon = "✓" if check.get("ok") else "✗"
             lines.append(
-                f"[{dev['index']}] {dev['name']} · "
-                f"{dev['channels']} canal(aux) · {dev['sample_rate']} Hz"
+                f"{icon} {check.get('name')}: {check.get('detail', '')}"
+            )
+
+        inputs = result.get("inputs", [])
+        lines.extend(["", f"Entrées audio détectées : {len(inputs)}"])
+        for dev in inputs[:20]:
+            supported = dev.get("supported_samplerate")
+            rate = f"{supported} Hz" if supported else "format incompatible"
+            lines.append(
+                f"[{dev.get('index')}] {dev.get('name')} · {rate}"
             )
 
         lines.extend(
@@ -618,16 +625,15 @@ class MainWindow(QMainWindow):
                 "",
                 "Micro configuré : "
                 + (settings.audio_device or "périphérique Windows par défaut"),
-                "",
-                "Pour forcer un micro : JARVIS_AUDIO_DEVICE=\"index ou partie du nom\"",
+                f"Rapport : {report}",
             ]
         )
+
         QMessageBox.information(
             self,
             "Diagnostic microphone",
             "\n".join(lines),
         )
-
     @Slot(float)
     def _on_voice_level(self, level: float) -> None:
         self.neural.set_audio_level(level)
