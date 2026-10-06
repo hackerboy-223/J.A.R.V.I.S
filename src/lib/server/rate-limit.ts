@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { SESSION_COOKIE } from "@/lib/server/auth";
 
 type Bucket = { count: number; resetAt: number };
 
@@ -12,8 +14,15 @@ const store = globalStore.jarvisRateLimit ?? new Map<string, Bucket>();
 globalStore.jarvisRateLimit = store;
 
 function clientId(req: NextRequest): string {
-  const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || req.headers.get("x-real-ip") || "local";
+  const session = req.cookies.get(SESSION_COOKIE)?.value;
+  if (session) {
+    const digest = createHash("sha256").update(session).digest("hex").slice(0, 24);
+    return `session:${digest}`;
+  }
+
+  // J.A.R.V.I.S. is single-user. Anonymous endpoints intentionally share one
+  // bucket instead of trusting spoofable forwarding headers.
+  return "anonymous";
 }
 
 function cleanup(now: number) {
@@ -31,15 +40,17 @@ export function enforceRateLimit(
   const now = Date.now();
   cleanup(now);
 
+  const limit = Math.max(1, Math.min(Math.trunc(opts.limit), 10_000));
+  const windowMs = Math.max(1_000, Math.min(Math.trunc(opts.windowMs), 24 * 60 * 60 * 1000));
   const key = `${opts.name}:${clientId(req)}`;
   const current = store.get(key);
 
   if (!current || current.resetAt <= now) {
-    store.set(key, { count: 1, resetAt: now + opts.windowMs });
+    store.set(key, { count: 1, resetAt: now + windowMs });
     return null;
   }
 
-  if (current.count >= opts.limit) {
+  if (current.count >= limit) {
     const retryAfter = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
     return NextResponse.json(
       { error: "Trop de requêtes. Réessaie dans quelques instants." },
@@ -47,7 +58,7 @@ export function enforceRateLimit(
         status: 429,
         headers: {
           "Retry-After": String(retryAfter),
-          "X-RateLimit-Limit": String(opts.limit),
+          "X-RateLimit-Limit": String(limit),
           "X-RateLimit-Remaining": "0",
         },
       }
