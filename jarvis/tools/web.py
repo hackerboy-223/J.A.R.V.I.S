@@ -8,6 +8,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from jarvis.config import settings
+from jarvis.version import __version__
 
 
 def _compact_snippet(text: str, limit: int) -> str:
@@ -222,7 +223,7 @@ def read_page(args: dict) -> dict:
     for _ in range(4):
         response = httpx.get(
             current,
-            headers={"User-Agent": "JARVIS-Desktop/0.2"},
+            headers={"User-Agent": f"JARVIS-Desktop/{__version__}"},
             follow_redirects=False,
             timeout=15,
         )
