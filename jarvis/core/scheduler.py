@@ -8,6 +8,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
+from jarvis.core.sqlite_utils import open_sqlite, prepare_sqlite
 
 from croniter import croniter
 
@@ -30,12 +31,11 @@ class TaskScheduler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.RLock()
+        prepare_sqlite(self.db_path)
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.db_path, timeout=10)
-        db.row_factory = sqlite3.Row
-        return db
+        return open_sqlite(self.db_path)
 
     def _init_db(self) -> None:
         with self._lock, closing(self._connect()) as db:
