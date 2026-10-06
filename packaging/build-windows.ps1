@@ -13,10 +13,10 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
 function Invoke-Python {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-    & python @Args
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$PythonArgs)
+    & python @PythonArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Python command failed ($LASTEXITCODE): python $($Args -join ' ')"
+        throw "Python command failed ($LASTEXITCODE): python $($PythonArgs -join ' ')"
     }
 }
 
@@ -56,13 +56,13 @@ Write-Host "==> J.A.R.V.I.S. $version Windows build"
 
 if (-not $SkipTests) {
     Write-Host "==> Source validation"
-    Invoke-Python -Args @("-m", "compileall", "-q", "jarvis", "tests")
-    Invoke-Python -Args @("-m", "unittest", "discover", "-s", "tests", "-v")
-    Invoke-Python -Args @("-m", "jarvis", "selftest")
+    Invoke-Python -PythonArgs @("-m", "compileall", "-q", "jarvis", "tests")
+    Invoke-Python -PythonArgs @("-m", "unittest", "discover", "-s", "tests", "-v")
+    Invoke-Python -PythonArgs @("-m", "jarvis", "selftest")
 }
 
 Write-Host "==> PyInstaller"
-Invoke-Python -Args @("-m", "PyInstaller", "packaging/jarvis.spec", "--noconfirm", "--clean")
+Invoke-Python -PythonArgs @("-m", "PyInstaller", "packaging/jarvis.spec", "--noconfirm", "--clean")
 
 $distribution = Join-Path $projectRoot "dist\J.A.R.V.I.S"
 $executable = Join-Path $distribution "JARVIS.exe"
