@@ -47,7 +47,10 @@ def main() -> int:
 
         return run_sandbox_runner()
 
+    from jarvis.version import __version__
+
     parser = argparse.ArgumentParser(prog="jarvis")
+    parser.add_argument("--version", action="version", version=f"J.A.R.V.I.S. {__version__}")
     sub = parser.add_subparsers(dest="command")
 
     serve = sub.add_parser("serve", help="Lancer l'API locale OpenAI-compatible.")
@@ -56,6 +59,8 @@ def main() -> int:
     sub.add_parser("selftest", help="Tester les nouveaux sous-systèmes sans API externe.")
     sub.add_parser("doctor", help="Diagnostiquer le démarrage de l\'interface desktop Qt.")
     sub.add_parser("health", help="Afficher l'état de santé local de J.A.R.V.I.S.")
+    sub.add_parser("package-doctor", help="Vérifier les dépendances du bundle installé.")
+    sub.add_parser("voice-doctor", help="Diagnostiquer PortAudio et les microphones sans charger Vosk.")
 
     index = sub.add_parser("index", help="Indexer les fichiers du workspace local.")
     index.add_argument("--root")
@@ -75,6 +80,18 @@ def main() -> int:
     if args.command == "doctor":
         from jarvis.ui.main_window import run_app
         return run_app(diagnostic_seconds=2.0)
+    if args.command == "package-doctor":
+        import json
+        from jarvis.diagnostics import package_diagnostics
+        result = package_diagnostics()
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["healthy"] else 2
+    if args.command == "voice-doctor":
+        import json
+        from jarvis.diagnostics import voice_diagnostics
+        result = voice_diagnostics()
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["healthy"] else 2
     if args.command == "health":
         import json
         from jarvis.core.health import HealthService
