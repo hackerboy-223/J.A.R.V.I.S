@@ -17,6 +17,8 @@ _ALLOWED_IMPORTS = {
     "itertools",
     "functools",
 }
+_MAX_OUTPUT_CHARS = 12_000
+
 _BLOCKED_NAMES = {
     "open",
     "eval",
@@ -70,6 +72,18 @@ def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
 
 
 def _execute(code: str) -> None:
+    output_chars = 0
+
+    def safe_print(*values, sep=" ", end="\n") -> None:
+        nonlocal output_chars
+        text = sep.join(str(value) for value in values) + str(end)
+        output_chars += len(text)
+        if output_chars > _MAX_OUTPUT_CHARS:
+            raise RuntimeError(
+                f"Sortie sandbox limitée à {_MAX_OUTPUT_CHARS} caractères."
+            )
+        sys.stdout.write(text)
+
     safe_builtins = {
         name: getattr(builtins, name)
         for name in (
@@ -100,6 +114,7 @@ def _execute(code: str) -> None:
             "zip",
         )
     }
+    safe_builtins["print"] = safe_print
     safe_builtins["Exception"] = Exception
     safe_builtins["__import__"] = _safe_import
     safe_globals = {"__builtins__": safe_builtins}
