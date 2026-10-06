@@ -122,14 +122,15 @@ L'objectif final est simple : **un seul cerveau, une seule mémoire, les mêmes 
 | Wake word / interruption | ✅ Présent |
 | Exa web search | ✅ Intégré |
 | Control Center Web | ✅ Actif |
-| Diagnostic plateforme | ✅ 7 sous-systèmes |
+| Diagnostic plateforme | ✅ Platform + package + voice doctors |
 | Vision écran | 🔜 Prévu |
-| Window manager avancé | 🔜 Prévu |
-| Automatisation UI sûre | 🔜 Prévu |
-| Permissions Center natif | 🔜 Prévu |
-| Missions persistantes UI | 🔜 Prévu |
-| Installer signé / updater | 🔜 Prévu |
-| Core Python ↔ Web unifié | 🚧 En cours de conception |
+| Gestion fenêtres Windows | ✅ Focus / min / max / restore avec cible non ambiguë |
+| Automatisation UI sûre | 🟡 Sémantique via pywinauto optionnel |
+| Permissions Center natif | ✅ Actif |
+| Missions persistantes UI | ✅ Actif |
+| Installer Windows / updater | ✅ Actif · SHA-256 vérifié |
+| Signature Authenticode | 🔜 Certificat de signature requis |
+| Core Python ↔ Web unifié | 🟡 Bridge opt-in via `JARVIS_CORE_URL` |
 
 ---
 
@@ -803,56 +804,42 @@ J.A.R.V.I.S/
 
 # 🗺️ Roadmap
 
-## Phase A — Core professionnel
+## Baseline 0.2.0 — fiabilité & sécurité
 
-- [ ] PermissionEngine unifié
-- [ ] JobManager
-- [ ] EventBus
-- [ ] STOP global coopératif
-- [ ] Health Center UI
-- [ ] crash logs persistants
-- [ ] Settings UI native
-- [ ] secrets Windows Credential Manager
+- [x] PermissionEngine ALLOW / ASK / DENY
+- [x] JobManager + STOP coopératif
+- [x] EventBus + Activity Center
+- [x] Health Center + crash logs persistants
+- [x] Diagnostics package / PortAudio / microphone
+- [x] Secrets via Credential Manager / keyring
+- [x] Logs et audit tool payloads expurgés
+- [x] SQLite WAL + busy timeout + foreign keys
+- [x] First-run wizard sécurisé
+- [x] System tray + notifications
+- [x] Scheduler et Task Center
+- [x] Clipboard contrôlé
+- [x] File index / workspaces / missions
+- [x] Undo + diff preview
+- [x] Gestion de fenêtres Windows non ambiguë
+- [x] UI Automation sémantique optionnelle
+- [x] Capture multi-moniteurs
+- [x] Migration Prisma → Python
+- [x] Installer Inno Setup per-user
+- [x] Build smoke-testé après PyInstaller
+- [x] SHA256SUMS + build metadata
+- [x] Updater GitHub Releases avec digest SHA-256
+- [x] Dependabot pip + Bun
+- [x] CI sans Actions externes
 
-## Phase B — Assistant de bureau
+## Prochaine phase — produit
 
-- [ ] System tray
-- [ ] notifications Windows
-- [ ] Task Center
-- [ ] Activity Center
-- [ ] clipboard contrôlé
-- [ ] file index / search
-- [ ] workspaces favoris
-- [ ] window manager
-
-## Phase C — Capacités avancées
-
-- [ ] vision écran
-- [ ] capture multi-moniteurs
-- [ ] safe UI automation
-- [ ] missions persistantes
-- [ ] restauration après reboot
-- [ ] undo / redo
-- [ ] diff viewer
-- [ ] vrai streaming API
-
-## Phase D — Unification
-
-- [ ] Python Core comme source de vérité
-- [ ] WebSocket event stream
-- [ ] Next.js devient client du Python Core
-- [ ] mémoire unique
-- [ ] permissions uniques
-- [ ] scheduler unique
-
-## Phase E — Produit Windows
-
-- [ ] first-run wizard
-- [ ] couverture pytest / pytest-qt
-- [ ] migration Prisma → Python
-- [ ] installer Windows
-- [ ] auto-update GitHub Releases
-- [ ] signature si distribution publique
+- [ ] Signature Authenticode avec certificat de confiance
+- [ ] Compréhension visuelle multimodale de l'écran
+- [ ] Tests UI Qt plus étendus sur vraies machines Windows
+- [ ] Core Python comme source de vérité obligatoire pour le Web
+- [ ] Mémoire / permissions / scheduler totalement uniques entre Web et Desktop
+- [ ] Télémétrie locale de performance voix longue durée
+- [ ] Release stable 1.0 après soak tests Windows
 
 ---
 
@@ -861,9 +848,7 @@ J.A.R.V.I.S/
 Le projet contient déjà une recette PyInstaller.
 
 ```powershell
-python -m pip install -e ".[build]"
-python -m unittest discover -s tests -v
-python -m jarvis selftest
+python -m pip install -e ".[build,test]"
 .\packaging\build-windows.ps1
 ```
 
@@ -872,6 +857,8 @@ Sorties prévues :
 ```text
 dist/JARVIS-Setup-x64.exe
 dist/JARVIS-Windows-x64.zip
+dist/SHA256SUMS.txt
+dist/J.A.R.V.I.S/BUILD-INFO.json
 ```
 
 `JARVIS-Setup-x64.exe` est le véritable installateur Windows per-user (Inno Setup) avec raccourcis et désinstallation. Le ZIP reste disponible comme version portable. Le runtime PyInstaller reste volontairement en dossier afin de réduire les problèmes liés aux bibliothèques natives Qt/audio.
@@ -888,6 +875,12 @@ python -m jarvis selftest
 
 # Diagnostic fenêtre Qt
 python -m jarvis doctor
+
+# Vérifier les dépendances réellement embarquées
+python -m jarvis package-doctor
+
+# Diagnostiquer PortAudio + microphones sans charger Vosk
+python -m jarvis voice-doctor
 
 # Lancer le desktop
 python -m jarvis
