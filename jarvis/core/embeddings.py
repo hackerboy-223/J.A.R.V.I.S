@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from jarvis.config import settings
+from jarvis.core.network import service_endpoint
 
 
 class EmbeddingClient:
@@ -21,7 +22,7 @@ class EmbeddingClient:
         if not self.enabled:
             return []
 
-        endpoint = settings.embedding_base_url.rstrip("/") + "/embeddings"
+        endpoint = service_endpoint(settings.embedding_base_url, "embeddings", label="embeddings")
         headers = {"Content-Type": "application/json"}
         if settings.embedding_api_key:
             headers["Authorization"] = f"Bearer {settings.embedding_api_key}"
