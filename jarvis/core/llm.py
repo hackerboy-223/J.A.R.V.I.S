@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from huggingface_hub import InferenceClient
 
 from jarvis.config import settings
+from jarvis.core.network import is_loopback_url, service_endpoint
 
 
 def _tool_call_to_dict(call: Any) -> dict[str, Any]:
@@ -44,7 +46,13 @@ class LLMClient:
         self.ollama_model = settings.ollama_model
 
     def _is_local(self) -> bool:
-        return "localhost" in self.base_url or "127.0.0.1" in self.base_url
+        return is_loopback_url(self.base_url)
+
+    def _is_openrouter_url(self) -> bool:
+        try:
+            return (urlparse(self.base_url).hostname or "").lower() == "openrouter.ai"
+        except Exception:
+            return False
 
     def _complete_huggingface(
         self,
@@ -177,8 +185,13 @@ class LLMClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        endpoint = service_endpoint(
+            self.base_url,
+            "chat/completions",
+            label="LLM",
+        )
         response = httpx.post(
-            f"{self.base_url}/chat/completions",
+            endpoint,
             headers=headers,
             json=payload,
             timeout=90,
@@ -201,8 +214,13 @@ class LLMClient:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
 
+        endpoint = service_endpoint(
+            self.ollama_base_url,
+            "chat/completions",
+            label="Ollama",
+        )
         response = httpx.post(
-            f"{self.ollama_base_url}/chat/completions",
+            endpoint,
             headers={"Content-Type": "application/json"},
             json=payload,
             timeout=90,
@@ -307,13 +325,13 @@ class LLMClient:
         if self.provider in {"ollama", "local"}:
             payload["model"] = self.ollama_model
             yield from self._stream_openai_http(
-                f"{self.ollama_base_url}/chat/completions",
+                service_endpoint(self.ollama_base_url, "chat/completions", label="Ollama"),
                 {"Content-Type": "application/json"},
                 payload,
             )
             return
 
-        if self.provider in {"openrouter", "open_router"} or "openrouter.ai" in self.base_url:
+        if self.provider in {"openrouter", "open_router"} or self._is_openrouter_url():
             payload["model"] = self.model or "openrouter/free"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -333,7 +351,7 @@ class LLMClient:
                 fallback["model"] = self.ollama_model
                 try:
                     yield from self._stream_openai_http(
-                        f"{self.ollama_base_url}/chat/completions",
+                        service_endpoint(self.ollama_base_url, "chat/completions", label="Ollama"),
                         {"Content-Type": "application/json"},
                         fallback,
                     )
@@ -357,7 +375,7 @@ class LLMClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         yield from self._stream_openai_http(
-            f"{self.base_url}/chat/completions",
+            service_endpoint(self.base_url, "chat/completions", label="LLM"),
             headers,
             payload,
         )
@@ -397,7 +415,7 @@ class LLMClient:
             return self._complete_ollama(messages, tools)
 
         # Backward compatibility: an OpenRouter base URL also gets OpenRouter headers.
-        if "openrouter.ai" in self.base_url:
+        if self._is_openrouter_url():
             return self._complete_openrouter(messages, tools)
 
         return self._complete_openai_compatible(messages, tools)
