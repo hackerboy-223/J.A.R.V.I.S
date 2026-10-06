@@ -9,7 +9,10 @@ PROJECT_ROOT = Path(SPECPATH).resolve().parent
 
 datas = []
 binaries = []
-hiddenimports = collect_submodules("jarvis")
+hiddenimports = collect_submodules(
+    "jarvis",
+    filter=lambda name: not is_module_or_submodule(name, "jarvis.voice.stt"),
+)
 
 # Runtime version lookup uses importlib.metadata.
 try:
@@ -21,8 +24,6 @@ except Exception:
 # PyInstaller cannot always infer from static imports.
 for package in (
     "comtypes",
-    "ctranslate2",
-    "faster_whisper",
     "huggingface_hub",
     "keyring",
     "_sounddevice_data",
@@ -72,6 +73,7 @@ analysis = Analysis(
         "pytest",
         "IPython",
         "mcp.cli",
+        "jarvis.voice.stt",
         "numpy.f2py.tests",
         "numpy.testing.tests",
     ],
