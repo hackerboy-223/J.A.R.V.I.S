@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 import faulthandler
 import logging
+import os
+import re
 import sys
 import threading
 import traceback
@@ -18,15 +20,52 @@ CRASH_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "jarvis.log"
 _fault_handle = None
 
+_SECRET_NAME_MARKERS = ("TOKEN", "SECRET", "PASSWORD", "API_KEY", "ACCESS_KEY")
+_BEARER_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+\-/=]{8,}")
+_KNOWN_KEY_RE = re.compile(
+    r"\b(?:sk-or-v1-|hf_|gsk_|exa_)[A-Za-z0-9._-]{8,}\b",
+    re.IGNORECASE,
+)
+_JSON_SECRET_RE = re.compile(
+    r'(?i)(["\']?(?:token|api[_-]?key|secret|password)["\']?\s*[:=]\s*["\']?)'
+    r'[^"\'\s,}]{6,}'
+)
+
+
+def _redact(text: object) -> str:
+    clean = str(text or "")
+    clean = _BEARER_RE.sub(r"\1***REDACTED***", clean)
+    clean = _KNOWN_KEY_RE.sub("***REDACTED***", clean)
+    clean = _JSON_SECRET_RE.sub(r"\1***REDACTED***", clean)
+
+    # Also redact the exact values of secrets already loaded in the process.
+    # This catches providers whose token format is not predictable.
+    for name, value in os.environ.items():
+        upper = name.upper()
+        if not value or len(value) < 6:
+            continue
+        if any(marker in upper for marker in _SECRET_NAME_MARKERS):
+            clean = clean.replace(value, "***REDACTED***")
+
+    return clean
+
+
+class RedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return _redact(super().format(record))
+
 
 def configure_logging() -> logging.Logger:
     logger = logging.getLogger("jarvis")
     if logger.handlers:
         return logger
+
     logger.setLevel(logging.INFO)
-    formatter = logging.Formatter(
+    logger.propagate = False
+    formatter = RedactingFormatter(
         "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
+
     file_handler = RotatingFileHandler(
         LOG_FILE,
         maxBytes=2_000_000,
@@ -36,9 +75,12 @@ def configure_logging() -> logging.Logger:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    console = logging.StreamHandler(sys.stderr)
-    console.setFormatter(formatter)
-    logger.addHandler(console)
+    # A frozen --windowed build may not have a usable stderr handle.
+    if sys.stderr is not None:
+        console = logging.StreamHandler(sys.stderr)
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+
     return logger
 
 
@@ -48,7 +90,7 @@ logger = configure_logging()
 def _write_crash(kind: str, exc_type, exc_value, exc_tb) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     path = CRASH_DIR / f"{kind}-{stamp}.log"
-    text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    text = _redact("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
     path.write_text(text, encoding="utf-8")
     logger.critical("Unhandled %s exception written to %s\n%s", kind, path, text)
 
