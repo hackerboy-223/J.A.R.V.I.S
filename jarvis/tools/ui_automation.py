@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from jarvis.tools.windows import focus_window, list_windows
@@ -44,7 +45,7 @@ def control_action(args: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("action doit être click ou set_text.")
 
     desktop = Desktop(backend="uia")
-    window = desktop.window(title_re=f".*{window_title}.*")
+    window = desktop.window(title_re=f".*{re.escape(window_title)}.*")
     control = window.child_window(title=control_title)
 
     if action == "click":
