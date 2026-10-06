@@ -8,7 +8,7 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Signal, QObject, QTimer
+from PySide6.QtCore import QSettings, Signal, Slot, QObject, QTimer
 from PySide6.QtGui import QAction, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -327,6 +327,7 @@ class MainWindow(QMainWindow):
         request["event"].wait(timeout=60)
         return bool(request["allowed"])
 
+    @Slot(object)
     def _handle_confirm_request(self, request: object) -> None:
         if not isinstance(request, dict):
             return
@@ -386,6 +387,7 @@ class MainWindow(QMainWindow):
             daemon=True,
         ).start()
 
+    @Slot(bool, str)
     def _on_voice_start_finished(self, success: bool, message: str) -> None:
         self._voice_starting = False
         self.voice_button.setEnabled(True)
@@ -487,6 +489,7 @@ class MainWindow(QMainWindow):
             )
         QMessageBox.information(self, "Agent Memory", "\n".join(lines))
 
+    @Slot(str)
     def _on_agent_progress(self, status: str) -> None:
         self.neural.set_state("thinking")
         self.core_status.setText(status)
@@ -542,6 +545,7 @@ class MainWindow(QMainWindow):
         self.chat.setTextCursor(cursor)
         self.chat.ensureCursorVisible()
 
+    @Slot()
     def _on_barge_in(self) -> None:
         if not self.hands_free:
             return
@@ -563,6 +567,7 @@ class MainWindow(QMainWindow):
                 f"Erreur reprise microphone après interruption : {exc}"
             )
 
+    @Slot()
     def _on_speech_finished(self) -> None:
         if self.listener is not None:
             self.listener.stop_keyword_monitor()
@@ -623,9 +628,11 @@ class MainWindow(QMainWindow):
             "\n".join(lines),
         )
 
+    @Slot(float)
     def _on_voice_level(self, level: float) -> None:
         self.neural.set_audio_level(level)
 
+    @Slot(str)
     def _on_voice_error(self, message: str) -> None:
         self._voice_starting = False
         self.voice_button.setEnabled(True)
@@ -651,10 +658,12 @@ class MainWindow(QMainWindow):
             if self.listener is not None:
                 self.listener.stop()
 
+    @Slot(str)
     def _on_partial(self, text: str) -> None:
         if self.hands_free:
             self.live_caption.setText(f"LISTENING · {text}")
 
+    @Slot(str)
     def _on_final_transcript(self, text: str) -> None:
         if not self.hands_free or not text.strip():
             return
@@ -710,6 +719,7 @@ class MainWindow(QMainWindow):
                             f"Erreur reprise microphone : {exc}"
                         )
 
+    @Slot(str)
     def _on_answer(self, answer: str) -> None:
         self._start_typewriter(answer)
         self.input.setEnabled(True)
@@ -727,6 +737,7 @@ class MainWindow(QMainWindow):
                 4000,
             )
 
+    @Slot(str)
     def _set_voice_state(self, state: str) -> None:
         self.neural.set_state(state)
         self.core_status.setText(state)
