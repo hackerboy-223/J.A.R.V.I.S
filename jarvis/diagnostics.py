@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 from pathlib import Path
 import platform
@@ -190,3 +191,18 @@ def voice_diagnostics() -> dict[str, Any]:
         item["ok"] for item in checks if item.get("required", True)
     )
     return result
+
+
+def write_diagnostic_report(name: str, result: dict[str, Any]) -> Path:
+    reports = (DATA_DIR / "logs" / "diagnostics").resolve()
+    reports.mkdir(parents=True, exist_ok=True)
+    safe_name = "".join(
+        ch for ch in str(name or "diagnostic").lower()
+        if ch.isalnum() or ch in {"-", "_"}
+    ) or "diagnostic"
+    path = reports / f"{safe_name}.json"
+    path.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return path
