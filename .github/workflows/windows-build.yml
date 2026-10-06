@@ -1,4 +1,4 @@
-name: Windows installer
+name: Windows validation
 
 on:
   push:
@@ -26,50 +26,54 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: windows-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-windows:
+  validate-windows:
     runs-on: windows-latest
-    timeout-minutes: 40
-
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install application and packager
+      - name: Checkout source without external actions
+        shell: pwsh
         run: |
+          git init .
+          git remote add origin "https://github.com/$env:GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin $env:GITHUB_REF
+          git checkout --detach FETCH_HEAD
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python --version
           python -m pip install --upgrade pip
-          python -m pip install -e ".[build]"
+          python -m pip install -e ".[build,test]"
 
-      - name: Compile Python sources
-        run: python -m compileall -q jarvis tests
-
-      - name: Run regression tests
+      - name: Compile and test
+        shell: pwsh
         run: |
+          python -m compileall -q jarvis tests
           python -m unittest discover -s tests -v
           python -m jarvis selftest
+          python -m jarvis package-doctor
+          python -m ruff check jarvis tests
 
-      - name: Install Inno Setup
-        if: github.event_name != 'pull_request'
-        run: choco install innosetup -y --no-progress
+      - name: Build portable package for pull request
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: ./packaging/build-windows.ps1 -SkipInstaller -SkipTests
 
       - name: Build Windows installer
         if: github.event_name != 'pull_request'
         shell: pwsh
-        run: ./packaging/build-windows.ps1
+        run: |
+          choco install innosetup -y --no-progress
+          ./packaging/build-windows.ps1 -SkipTests
 
-      - name: Upload Windows package
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: JARVIS-Windows-x64
-          path: |
-            dist/JARVIS-Setup-x64.exe
-            dist/JARVIS-Windows-x64.zip
-          if-no-files-found: error
-          retention-days: 14
+      - name: Print package checksums
+        shell: pwsh
+        run: Get-Content dist/SHA256SUMS.txt
