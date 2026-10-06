@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from jarvis.config import settings
+from jarvis.core.network import validate_service_base_url
 
 
 _ENV_REF = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -66,9 +67,10 @@ class MCPManager:
         cfg = self._server(name)
         transport = str(cfg.get("transport", "stdio")).lower()
         if transport in {"http", "streamable_http"}:
-            url = str(cfg.get("url", "")).strip()
-            if not url.startswith(("https://", "http://127.0.0.1", "http://localhost")):
-                raise ValueError("Les serveurs MCP HTTP distants doivent utiliser HTTPS.")
+            url = validate_service_base_url(
+                str(cfg.get("url", "")).strip(),
+                label="MCP",
+            )
             return Client(url)
 
         if transport == "stdio":
