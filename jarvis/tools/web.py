@@ -11,6 +11,9 @@ from jarvis.config import settings
 from jarvis.version import __version__
 
 
+_MAX_PAGE_BYTES = 2_000_000
+
+
 def _compact_snippet(text: str, limit: int) -> str:
     clean = " ".join(str(text or "").split())
     if len(clean) <= limit:
@@ -218,40 +221,61 @@ def read_page(args: dict) -> dict:
         raise ValueError("url est requis.")
 
     target = _safe_public_url(url)
-    response = None
     current = target
+
     for _ in range(4):
-        response = httpx.get(
+        with httpx.stream(
+            "GET",
             current,
             headers={"User-Agent": f"JARVIS-Desktop/{__version__}"},
             follow_redirects=False,
-            timeout=15,
-        )
-        if response.status_code not in {301, 302, 303, 307, 308}:
-            break
-        location = response.headers.get("location")
-        if not location:
-            break
-        current = str(httpx.URL(current).join(location))
-        current = _safe_public_url(current)
+            timeout=httpx.Timeout(15, connect=8),
+        ) as response:
+            if response.status_code in {301, 302, 303, 307, 308}:
+                location = response.headers.get("location")
+                if not location:
+                    raise RuntimeError("Redirection HTTP sans destination.")
+                current = str(httpx.URL(current).join(location))
+                current = _safe_public_url(current)
+                continue
 
-    if response is None:
-        raise RuntimeError("Lecture de page impossible.")
-    response.raise_for_status()
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "")
+            if (
+                "text" not in content_type
+                and "html" not in content_type
+                and "json" not in content_type
+            ):
+                raise ValueError(
+                    f"Type de contenu non pris en charge : {content_type}"
+                )
 
-    content_type = response.headers.get("content-type", "")
-    if "text" not in content_type and "html" not in content_type and "json" not in content_type:
-        raise ValueError(f"Type de contenu non pris en charge : {content_type}")
+            declared_raw = response.headers.get("content-length")
+            if declared_raw and declared_raw.isdigit():
+                if int(declared_raw) > _MAX_PAGE_BYTES:
+                    raise ValueError("Page trop volumineuse pour J.A.R.V.I.S.")
 
-    text = response.text
-    if "html" in content_type:
-        parser = _TextExtractor()
-        parser.feed(text)
-        text = "\n".join(parser.parts)
+            payload = bytearray()
+            for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                payload.extend(chunk)
+                if len(payload) > _MAX_PAGE_BYTES:
+                    raise ValueError("Page trop volumineuse pour J.A.R.V.I.S.")
 
-    clean = " ".join(text.split())
-    return {
-        "url": str(response.url),
-        "status": response.status_code,
-        "text": clean[:18000],
-    }
+            encoding = response.encoding or "utf-8"
+            text = bytes(payload).decode(encoding, errors="replace")
+
+            if "html" in content_type:
+                parser = _TextExtractor()
+                parser.feed(text)
+                text = "\n".join(parser.parts)
+
+            clean = " ".join(text.split())
+            return {
+                "url": str(response.url),
+                "status": response.status_code,
+                "text": clean[:18000],
+                "truncated": len(clean) > 18000,
+            }
+
+    raise RuntimeError("Trop de redirections HTTP.")
+
