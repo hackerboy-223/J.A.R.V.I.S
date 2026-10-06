@@ -106,7 +106,7 @@ class Settings:
     api_token: str = os.getenv("JARVIS_API_TOKEN", "").strip()
     allow_pc_control: bool = os.getenv("JARVIS_ALLOW_PC_CONTROL", "false").lower() == "true"
     confirm_safe_pc_actions: bool = os.getenv(
-        "JARVIS_CONFIRM_SAFE_PC_ACTIONS", "false"
+        "JARVIS_CONFIRM_SAFE_PC_ACTIONS", "true"
     ).lower() == "true"
     stt_provider: str = os.getenv("JARVIS_STT_PROVIDER", "hybrid").strip().lower()
     groq_api_key: str = _secret("GROQ_API_KEY")
