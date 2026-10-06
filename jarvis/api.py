@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from jarvis.config import settings
 from jarvis.core.agent import JarvisAgent
+from jarvis.version import __version__
 
 
 def create_app(agent: JarvisAgent | None = None) -> FastAPI:
@@ -26,7 +27,7 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
 
     app = FastAPI(
         title="J.A.R.V.I.S. API",
-        version="0.3.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
