@@ -50,17 +50,50 @@ def active_window(_: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
+def _select_window(
+    windows: list[dict[str, Any]],
+    requested: str,
+) -> dict[str, Any]:
+    clean = requested.strip().casefold()
+    if not clean:
+        raise ValueError("title est requis.")
+
+    exact = [
+        item
+        for item in windows
+        if str(item.get("title", "")).strip().casefold() == clean
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        raise ValueError("Plusieurs fenêtres portent exactement ce titre.")
+
+    partial = [
+        item
+        for item in windows
+        if clean in str(item.get("title", "")).casefold()
+    ]
+    if not partial:
+        raise ValueError("Fenêtre introuvable.")
+    if len(partial) > 1:
+        titles = ", ".join(
+            str(item.get("title", ""))[:80]
+            for item in partial[:5]
+        )
+        raise ValueError(
+            "Titre de fenêtre ambigu. Précise davantage. "
+            f"Correspondances : {titles}"
+        )
+    return partial[0]
+
+
 def focus_window(args: dict[str, Any]) -> dict[str, Any]:
     win32con, win32gui, _ = _win32()
     requested = str(args.get("title", "")).strip().lower()
     if not requested:
         raise ValueError("title est requis.")
 
-    matches = list_windows({})["windows"]
-    match = next((item for item in matches if requested in item["title"].lower()), None)
-    if match is None:
-        raise ValueError("Fenêtre introuvable.")
-
+    match = _select_window(list_windows({})["windows"], requested)
     hwnd = int(match["hwnd"])
     if win32gui.IsIconic(hwnd):
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
@@ -77,11 +110,7 @@ def window_action(args: dict[str, Any]) -> dict[str, Any]:
     if action not in {"focus", "minimize", "maximize", "restore"}:
         raise ValueError("action doit être focus, minimize, maximize ou restore.")
 
-    matches = list_windows({})["windows"]
-    match = next((item for item in matches if title in item["title"].lower()), None)
-    if match is None:
-        raise ValueError("Fenêtre introuvable.")
-
+    match = _select_window(list_windows({})["windows"], title)
     hwnd = int(match["hwnd"])
     if action == "focus":
         if win32gui.IsIconic(hwnd):
