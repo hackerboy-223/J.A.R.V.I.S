@@ -82,15 +82,17 @@ def main() -> int:
         return run_app(diagnostic_seconds=2.0)
     if args.command == "package-doctor":
         import json
-        from jarvis.diagnostics import package_diagnostics
+        from jarvis.diagnostics import package_diagnostics, write_diagnostic_report
         result = package_diagnostics()
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        report = write_diagnostic_report("package-doctor", result)
+        print(json.dumps({**result, "report": str(report)}, ensure_ascii=False, indent=2))
         return 0 if result["healthy"] else 2
     if args.command == "voice-doctor":
         import json
-        from jarvis.diagnostics import voice_diagnostics
+        from jarvis.diagnostics import voice_diagnostics, write_diagnostic_report
         result = voice_diagnostics()
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        report = write_diagnostic_report("voice-doctor", result)
+        print(json.dumps({**result, "report": str(report)}, ensure_ascii=False, indent=2))
         return 0 if result["healthy"] else 2
     if args.command == "health":
         import json
