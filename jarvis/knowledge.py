@@ -12,6 +12,7 @@ from typing import Any
 
 from jarvis.config import settings
 from jarvis.core.embeddings import EmbeddingClient, cosine_similarity
+from jarvis.core.sqlite_utils import open_sqlite, prepare_sqlite
 
 
 _TOKEN_RE = re.compile(r"[\wÀ-ÿ'-]{3,}", re.UNICODE)
@@ -28,12 +29,11 @@ class KnowledgeBase:
         self.db_path = db_path
         self._lock = threading.RLock()
         self.embedding_client = EmbeddingClient()
+        prepare_sqlite(self.db_path)
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.db_path, timeout=10)
-        db.row_factory = sqlite3.Row
-        return db
+        return open_sqlite(self.db_path)
 
     def _init_db(self) -> None:
         with self._lock, closing(self._connect()) as db:
