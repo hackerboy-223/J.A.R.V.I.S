@@ -166,7 +166,7 @@ const calculator: ToolFn = async (args) => {
 };
 
 // ---------------------------------------------------------------
-// run_js — bac à sable node:vm
+// run_js — development-only compatibility runner (node:vm is NOT a security boundary)
 // ---------------------------------------------------------------
 
 function fmtValue(v: unknown): string {
@@ -180,11 +180,12 @@ function fmtValue(v: unknown): string {
 
 const runJs: ToolFn = async (args) => {
   if (
-    process.env.NODE_ENV === "production" &&
+    process.env.NODE_ENV !== "development" ||
     process.env.JARVIS_ALLOW_RUN_JS !== "true"
   ) {
     throw new Error(
-      "run_js est désactivé en production. Définis JARVIS_ALLOW_RUN_JS=true uniquement dans un environnement isolé."
+      "run_js est réservé au développement local explicite. " +
+        "Utilise le Python Core pour les calculs restreints en production."
     );
   }
 
