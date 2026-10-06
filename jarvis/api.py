@@ -13,7 +13,62 @@ from fastapi.responses import StreamingResponse
 
 from jarvis.config import settings
 from jarvis.core.agent import JarvisAgent
+from jarvis.core.logging_setup import _redact
 from jarvis.version import __version__
+
+
+_MAX_API_MESSAGES = 64
+_MAX_API_MESSAGE_PARTS = 64
+_MAX_API_USER_CHARS = 32_000
+_MAX_API_TOTAL_TEXT_CHARS = 128_000
+_MAX_API_MODEL_CHARS = 120
+_MAX_API_JOB_PROMPT_CHARS = 32_000
+
+
+def _validate_chat_messages(messages: object) -> list[dict[str, Any]]:
+    if not isinstance(messages, list):
+        raise HTTPException(status_code=400, detail="messages doit être une liste.")
+    if not messages:
+        raise HTTPException(status_code=400, detail="messages ne peut pas être vide.")
+    if len(messages) > _MAX_API_MESSAGES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Trop de messages ({_MAX_API_MESSAGES} max).",
+        )
+
+    normalized: list[dict[str, Any]] = []
+    total_chars = 0
+
+    for raw in messages:
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=400, detail="Message API invalide.")
+        role = str(raw.get("role", "")).strip()
+        if role not in {"system", "user", "assistant", "tool"}:
+            raise HTTPException(status_code=400, detail="Rôle de message invalide.")
+
+        content = raw.get("content", "")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            if len(content) > _MAX_API_MESSAGE_PARTS:
+                raise HTTPException(status_code=413, detail="Trop de parties dans un message.")
+            for part in content:
+                if not isinstance(part, dict):
+                    raise HTTPException(status_code=400, detail="Partie de message invalide.")
+                text = part.get("text")
+                if isinstance(text, str):
+                    total_chars += len(text)
+        elif content is not None:
+            raise HTTPException(status_code=400, detail="Contenu de message invalide.")
+
+        if total_chars > _MAX_API_TOTAL_TEXT_CHARS:
+            raise HTTPException(
+                status_code=413,
+                detail="Conversation trop volumineuse pour l'API locale.",
+            )
+        normalized.append(raw)
+
+    return normalized
 
 
 def create_app(agent: JarvisAgent | None = None) -> FastAPI:
@@ -234,6 +289,8 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
         prompt = str(payload.get("prompt", "")).strip()
         if not prompt:
             raise HTTPException(status_code=400, detail="prompt est requis.")
+        if len(prompt) > _MAX_API_JOB_PROMPT_CHARS:
+            raise HTTPException(status_code=413, detail="prompt trop volumineux.")
         mode = str(payload.get("mode", "standard")).strip().lower()
         operator_id = str(payload.get("operator_id", "api-job")).strip()[:120] or "api-job"
 
@@ -291,9 +348,7 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
     ):
         require_auth(authorization)
 
-        messages = payload.get("messages")
-        if not isinstance(messages, list):
-            raise HTTPException(status_code=400, detail="messages doit être une liste.")
+        messages = _validate_chat_messages(payload.get("messages"))
 
         user_text = ""
         for message in reversed(messages):
@@ -312,6 +367,11 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
 
         if not user_text:
             raise HTTPException(status_code=400, detail="Aucun message utilisateur exploitable.")
+        if len(user_text) > _MAX_API_USER_CHARS:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Message utilisateur trop long ({_MAX_API_USER_CHARS} caractères max).",
+            )
 
         metadata = payload.get("metadata")
         if not isinstance(metadata, dict):
@@ -324,14 +384,21 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
 
         completion_id = f"chatcmpl-{uuid.uuid4().hex}"
         created = int(time.time())
-        model = str(payload.get("model") or settings.llm_model)
+        model = str(payload.get("model") or settings.llm_model).strip()[:_MAX_API_MODEL_CHARS]
 
         if bool(payload.get("stream", False)):
-            queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+            queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue(maxsize=128)
             loop = asyncio.get_running_loop()
 
+            def push(kind: str, value: str) -> None:
+                future = asyncio.run_coroutine_threadsafe(
+                    queue.put((kind, value)),
+                    loop,
+                )
+                future.result(timeout=30)
+
             def progress(message: str) -> None:
-                loop.call_soon_threadsafe(queue.put_nowait, ("progress", message))
+                push("progress", str(message)[:1000])
 
             def stream_worker() -> None:
                 try:
@@ -341,11 +408,17 @@ def create_app(agent: JarvisAgent | None = None) -> FastAPI:
                         progress=progress,
                         operator_id=operator_id,
                     ):
-                        loop.call_soon_threadsafe(queue.put_nowait, ("delta", str(delta)))
+                        push("delta", str(delta))
                 except Exception as exc:
-                    loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
+                    try:
+                        push("error", _redact(str(exc))[:2000])
+                    except Exception:
+                        pass
                 finally:
-                    loop.call_soon_threadsafe(queue.put_nowait, ("done", ""))
+                    try:
+                        push("done", "")
+                    except Exception:
+                        pass
 
             asyncio.create_task(asyncio.to_thread(stream_worker))
 
