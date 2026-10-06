@@ -452,28 +452,21 @@ class VoskHandsFreeListener:
                 return
 
     def _callback(self, indata, frames, time_info, status) -> None:
-        del frames, time_info
-        if status:
-            self.on_status(f"MIC · {status}")
+        # PortAudio invokes this at real-time priority. Keep it deliberately tiny:
+        # copy the input block and enqueue it. No UI signals, logging, model work,
+        # locks or audio-level analysis are performed here.
+        del frames, time_info, status
         if not self._active.is_set():
             return
 
         raw = bytes(indata)
-        # int16 mono approximate live energy without numpy allocation.
-        if len(raw) >= 2:
-            sample_count = len(raw) // 2
-            view = memoryview(raw).cast("h")
-            stride = max(1, sample_count // 100)
-            peak = max((abs(view[i]) for i in range(0, sample_count, stride)), default=0)
-            self.on_level(min(1.0, peak / 12000.0))
-
         try:
             self._audio_q.put_nowait(raw)
         except queue.Full:
             try:
                 self._audio_q.get_nowait()
                 self._audio_q.put_nowait(raw)
-            except queue.Empty:
+            except (queue.Empty, queue.Full):
                 pass
 
     def _wav_bytes(self, pcm: bytes) -> bytes:
@@ -543,6 +536,18 @@ class VoskHandsFreeListener:
                     data = self._audio_q.get(timeout=0.25)
                 except queue.Empty:
                     continue
+
+                # Normal-priority worker: UI level analysis belongs here,
+                # never in PortAudio's real-time callback thread.
+                if len(data) >= 2:
+                    sample_count = len(data) // 2
+                    view = memoryview(data).cast("h")
+                    stride = max(1, sample_count // 100)
+                    peak = max(
+                        (abs(view[i]) for i in range(0, sample_count, stride)),
+                        default=0,
+                    )
+                    self.on_level(min(1.0, peak / 12000.0))
 
                 utterance.extend(data)
                 if len(utterance) > max_bytes:
