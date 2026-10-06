@@ -6,6 +6,8 @@ import json
 import sqlite3
 from typing import Any
 
+from jarvis.core.sqlite_utils import open_sqlite, prepare_sqlite
+
 
 class PrismaImporter:
     """Idempotent importer for the legacy Prisma SQLite conversation database."""
@@ -45,8 +47,8 @@ class PrismaImporter:
                 """
             ).fetchall()
 
-        with closing(sqlite3.connect(target, timeout=10)) as new:
-            new.row_factory = sqlite3.Row
+        prepare_sqlite(target)
+        with closing(open_sqlite(target)) as new:
             new.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS legacy_conversations (
